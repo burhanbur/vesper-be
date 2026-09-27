@@ -1,0 +1,117 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UserStatus {
+  ACTIVE
+  INACTIVE
+  SUSPENDED
+}
+
+model User {
+  id           String     @id @db.Uuid
+  name         String     @db.VarChar(120)
+  username     String?    @unique @db.VarChar(64)
+  email        String     @unique @db.VarChar(255)
+  passwordHash String     @map("password_hash") @db.VarChar(255)
+  status       UserStatus @default(ACTIVE)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz(3)
+  createdBy    String?    @map("created_by") @db.Uuid
+  updatedBy    String?    @map("updated_by") @db.Uuid
+  deletedBy    String?    @map("deleted_by") @db.Uuid
+  userRoles    UserRole[]
+
+  @@index([status])
+  @@index([deletedAt])
+  @@map("users")
+}
+
+model Role {
+  id              String           @id @db.Uuid
+  code            String           @unique @db.VarChar(32)
+  name            String           @db.VarChar(120)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt       DateTime?        @map("deleted_at") @db.Timestamptz(3)
+  createdBy       String?          @map("created_by") @db.Uuid
+  updatedBy       String?          @map("updated_by") @db.Uuid
+  deletedBy       String?          @map("deleted_by") @db.Uuid
+  userRoles       UserRole[]
+  rolePermissions RolePermission[]
+
+  @@index([deletedAt])
+  @@map("roles")
+}
+
+model AuthorizationRoute {
+  id              String           @id @db.Uuid
+  name            String           @unique @db.VarChar(160)
+  method          String           @db.VarChar(16)
+  module          String?          @db.VarChar(120)
+  description     String?          @db.VarChar(255)
+  createdAt       DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt       DateTime?        @map("deleted_at") @db.Timestamptz(3)
+  createdBy       String?          @map("created_by") @db.Uuid
+  updatedBy       String?          @map("updated_by") @db.Uuid
+  deletedBy       String?          @map("deleted_by") @db.Uuid
+  rolePermissions RolePermission[]
+
+  @@index([module])
+  @@index([deletedAt])
+  @@map("routes")
+}
+
+model UserRole {
+  roleId   String   @map("role_id") @db.Uuid
+  userId   String   @map("user_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy String?  @map("created_by") @db.Uuid
+  role      Role     @relation(fields: [roleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([roleId, userId])
+  @@index([userId])
+  @@map("user_roles")
+}
+
+model RolePermission {
+  roleId    String             @map("role_id") @db.Uuid
+  routeId   String             @map("route_id") @db.Uuid
+  createdAt DateTime           @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime           @updatedAt @map("updated_at") @db.Timestamptz(3)
+  createdBy String?            @map("created_by") @db.Uuid
+  role      Role               @relation(fields: [roleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  route     AuthorizationRoute @relation(fields: [routeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@id([roleId, routeId])
+  @@index([routeId])
+  @@map("role_permissions")
+}
+
+model StoredFile {
+  id           String    @id @db.Uuid
+  storageKey   String    @unique @map("storage_key") @db.VarChar(512)
+  originalName String    @map("original_name") @db.VarChar(255)
+  mimeType     String    @map("mime_type") @db.VarChar(127)
+  extension    String    @db.VarChar(16)
+  size         BigInt
+  checksum     String    @db.Char(64)
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz(3)
+  createdBy    String?   @map("created_by") @db.Uuid
+  deletedBy    String?   @map("deleted_by") @db.Uuid
+
+  @@index([createdAt])
+  @@index([deletedAt])
+  @@map("stored_files")
+}

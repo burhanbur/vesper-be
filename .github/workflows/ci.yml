@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NODE_ENV: test
+      APP_NAME: express-starter-kit-ci
+      HOST: 127.0.0.1
+      PORT: 3000
+      TRUST_PROXY: 'false'
+      DATABASE_URL: postgresql://test:test@localhost:5432/test
+      REDIS_URL: redis://localhost:6379
+      LOG_LEVEL: silent
+      CORS_ORIGINS: http://localhost:3000
+      API_DOCS_ENABLED: 'true'
+      RATE_LIMIT_WINDOW_MS: 60000
+      RATE_LIMIT_MAX: 1000
+      BODY_LIMIT_BYTES: 1048576
+      HTTP_REQUEST_TIMEOUT_MS: 15000
+      HTTP_HEADERS_TIMEOUT_MS: 16000
+      HTTP_KEEP_ALIVE_TIMEOUT_MS: 5000
+      SHUTDOWN_TIMEOUT_MS: 10000
+      EXCEL_IMPORT_MAX_BYTES: 5242880
+      EXCEL_IMPORT_MAX_ROWS: 1000
+      EXCEL_EXPORT_BATCH_SIZE: 500
+      FILE_STORAGE_PATH: storage/test-uploads
+      FILE_UPLOAD_MAX_BYTES: 10485760
+      FILE_ALLOWED_MIME_TYPES: application/pdf,image/jpeg,image/png
+      JWT_ACCESS_SECRET: ci-access-secret-with-at-least-32-characters
+      JWT_ACCESS_EXPIRES_IN: 15m
+      JWT_REFRESH_SECRET: ci-refresh-secret-with-at-least-32-characters
+      JWT_REFRESH_EXPIRES_IN: 7d
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm run db:generate
+      - run: npm run validate
+      - run: npm run audit:production

@@ -1,0 +1,12 @@
+node_modules
+dist
+coverage
+generated
+storage
+.git
+.github
+.env
+.env.*
+!.env.example
+*.log
+README.md
