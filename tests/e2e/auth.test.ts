@@ -212,4 +212,85 @@ describe('authentication API with Redis sessions', () => {
       .set('Authorization', `Bearer ${second.access_token}`)
       .expect(200);
   });
+
+  describe('registration', () => {
+    it('registers a new user successfully and returns tokens with session', async () => {
+      const { app, sessionStore } = testApp();
+      const response = await request(app)
+        .post('/api/v1/auth/register')
+        .send({
+          name: 'Dewi Lestari',
+          username: 'dewi',
+          email: 'dewi@example.com',
+          password: 'password-aman-123',
+        })
+        .expect(201);
+
+      expect(response.body).toMatchObject({
+        success: true,
+        message: 'Registrasi berhasil.',
+        data: {
+          user: {
+            name: 'Dewi Lestari',
+            email: 'dewi@example.com',
+            roles: ['User'],
+          },
+          token_type: 'Bearer',
+        },
+      });
+
+      const tokens = response.body.data as LoginTokens;
+      expect(tokens.access_token.split('.')).toHaveLength(3);
+      expect(tokens.refresh_token.split('.')).toHaveLength(3);
+      expect(sessionStore.sessions.size).toBe(1);
+
+      // Verify token immediately works on /auth/me
+      const me = await request(app)
+        .get('/api/v1/auth/me')
+        .set('Authorization', `Bearer ${tokens.access_token}`)
+        .expect(200);
+      expect(me.body.data.email).toBe('dewi@example.com');
+    });
+
+    it('rejects duplicate email with 409', async () => {
+      const { app } = testApp();
+      const response = await request(app)
+        .post('/api/v1/auth/register')
+        .send({
+          name: 'Budi Duplikat',
+          email: 'budi@example.com', // already registered in testApp
+          password: 'password-aman-123',
+        })
+        .expect(409);
+
+      expect(response.body.message).toContain('Email sudah terdaftar');
+    });
+
+    it('rejects duplicate username with 409', async () => {
+      const { app } = testApp();
+      const response = await request(app)
+        .post('/api/v1/auth/register')
+        .send({
+          name: 'Budi Lain',
+          username: 'budi', // already registered in testApp
+          email: 'budi.baru@example.com',
+          password: 'password-aman-123',
+        })
+        .expect(409);
+
+      expect(response.body.message).toContain('Username sudah digunakan');
+    });
+
+    it('validates minimum password length and invalid emails with 422', async () => {
+      const { app } = testApp();
+      await request(app)
+        .post('/api/v1/auth/register')
+        .send({
+          name: 'A', // too short
+          email: 'not-an-email',
+          password: 'short',
+        })
+        .expect(422);
+    });
+  });
 });
