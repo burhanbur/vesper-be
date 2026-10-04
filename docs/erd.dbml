@@ -1,0 +1,415 @@
+Project Vesper {
+  database_type: 'PostgreSQL'
+  note: '''
+    Vesper — Aplikasi pencatatan keuangan & wealth management untuk individu dan grup (pasutri/keluarga).
+    Stack: Flutter + ExpressJs + PostgreSQL + Redis. Arsitektur offline-first.
+
+    Scope sync offline (device <-> server): transactions, account_types, accounts, categories, user_profiles.
+    CATATAN: instruments/instrument_prices/investment_transactions/portfolio_daily_snapshots BELUM
+    masuk scope sync offline di atas — perlu diputuskan sebelum implementasi sync engine.
+  '''
+}
+
+//////////////////////////////////////////////////////////////
+// AUTH & RBAC
+//////////////////////////////////////////////////////////////
+table users {
+  id uuid [pk]
+  username varchar [unique]
+  email varchar [unique]
+  email_verified_at timestamptz
+  is_active boolean
+  last_login_at timestamptz
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  deleted_at timestamptz
+}
+
+table user_roles {
+  user_id uuid [pk, ref: > users.id]
+  role_id uuid [pk, ref: > roles.id]
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+}
+
+table roles {
+  id uuid [pk]
+  name varchar // admin, user
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  deleted_at timestamptz
+}
+
+table routes {
+  id uuid [pk]
+  name varchar
+  method varchar
+  module varchar // group
+  description text
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+}
+
+table role_permissions {
+  route_id uuid [pk, ref: > routes.id]
+  role_id uuid [pk, ref: > roles.id]
+  created_by bigint
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+}
+
+table api_keys {
+  id uuid [pk]
+  name varchar
+  key varchar(64) [unique]
+  description text
+  application varchar
+  ip_whitelist jsonb
+  permissions jsonb
+  is_active boolean [default: true]
+  rate_limit int [default: 60]
+  last_used_at timestamptz
+  expires_at timestamptz
+  created_by uuid
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_by uuid
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+
+  indexes {
+    (key) [name: 'idx_key']
+    (is_active) [name: 'idx_is_active']
+    (expires_at) [name: 'idx_expires_at']
+  }
+}
+
+//////////////////////////////////////////////////////////////
+// USER PROFILE
+//////////////////////////////////////////////////////////////
+table user_profiles {
+  user_id uuid [pk, ref: > users.id]
+  full_name varchar
+  phone_number varchar
+  gender enum('Laki-laki', 'Perempuan')
+  photo varchar [default: null]
+  base_currency varchar [default: 'IDR']
+  theme varchar
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  deleted_at timestamptz
+}
+
+//////////////////////////////////////////////////////////////
+// SOFT REF TABLES (referensi global, bukan milik user tertentu)
+//////////////////////////////////////////////////////////////
+table ref_categories {
+  id uuid [pk]
+  name varchar // Gaji, Side Job, Bonus, Deviden, Lainnya
+  type enum('INCOME', 'EXPENSE')
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+}
+
+table ref_account_types {
+  id uuid [pk]
+  name varchar // Cash, Rekening Bank, E-wallet, Hutang, Reksadana, Saham, Crypto
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+}
+
+//////////////////////////////////////////////////////////////
+// NOTIFICATIONS
+//////////////////////////////////////////////////////////////
+table notifications {
+  id uuid [pk]
+  user_id uuid [ref: > users.id]
+  type enum('info', 'error', 'warning')
+  title varchar [not null]
+  body text [not null]
+  metadata jsonb
+  is_read boolean [default: false]
+  read_at timestamptz
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+}
+
+//////////////////////////////////////////////////////////////
+// OFFLINE-FIRST SYNC ENGINE
+//////////////////////////////////////////////////////////////
+table devices {
+  id uuid [pk]
+  user_id uuid [ref: > users.id]
+  name varchar // iPhone 11, Samsung Galaxy S10 5G, Google Chrome, dll
+  platform varchar // Web, iOS, Android
+  app_version varchar
+  last_sync_version bigint [default: 0]
+  last_sync_at timestamptz
+  last_seen_at timestamptz
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+}
+
+table sync_changes {
+  id uuid [pk]
+  user_id uuid [ref: > users.id] // utk shared/group entity, 1 perubahan bisa fan-out jadi >1 row (1 per anggota grup)
+  device_id uuid [ref: > devices.id]
+  entity_type varchar
+  entity_id uuid
+  operation varchar // CREATE, UPDATE, DELETE
+  version bigint
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+}
+
+// KHUSUS UNTUK DATABASE LOCAL FLUTTER, BUKAN UNTUK POSTGRESQL
+table sync_queue {
+  id uuid [pk]
+  entity_type varchar // transactions, account_types, accounts, categories, user_profiles
+  entity_id uuid
+  operation enum('CREATE', 'UPDATE', 'DELETE')
+  payload jsonb
+  status enum('PENDING', 'SYNCING', 'FAILED', 'SYNCED')
+  retry_count int [default: 0]
+  last_error text
+  created_at timestamptz
+  updated_at timestamptz
+}
+
+//////////////////////////////////////////////////////////////
+// CORE FINANCE: ACCOUNTS, CATEGORIES, TRANSACTIONS
+//////////////////////////////////////////////////////////////
+table account_types {
+  id uuid [pk]
+  user_id uuid [ref: > users.id]
+  name varchar
+  category enum('CASH', 'INVESTMENT') [default: 'CASH']
+  version bigint
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  deleted_at timestamptz
+}
+
+table categories {
+  id uuid [pk]
+  user_id uuid [ref: > users.id]
+  type enum('EXPENSE', 'INCOME')
+  name varchar
+  version bigint
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  deleted_at timestamptz
+}
+
+table accounts {
+  id uuid [pk]
+  user_id uuid [ref: > users.id] // redundan scr normalisasi (bisa diturunin dari account_types.user_id), dipertahankan demi performa query
+  account_type_id uuid [ref: > account_types.id]
+  parent_account_id uuid [null, ref: > accounts.id] // nesting akun, mis. Bank Jago > pocket Main/Sedekah/dst
+  icon varchar
+  name varchar
+  currency varchar [default: 'IDR']
+  balance decimal(20, 2) // selalu di-recompute server dari SUM(transactions), jangan percaya nilai dari client
+  description text
+  is_visible boolean [default: true]
+  is_include_total boolean [default: true] // parent node dgn children biasanya false, biar ga double-count
+  sequence_order bigint
+  version bigint [not null, default: 1] // additive PRD optimistic locking; not a global sync cursor
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  deleted_at timestamptz
+}
+
+table transfers {
+  id uuid [pk]
+  from_account_id uuid [ref: > accounts.id]
+  to_account_id uuid [ref: > accounts.id]
+  amount decimal(20, 2)
+  transacted_at timestamptz [not null]
+  description text
+  created_by uuid [ref: > users.id]
+  updated_by uuid [ref: > users.id]
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  deleted_at timestamptz
+}
+
+// kalau transfer, berarti create 2 row transactions (debit & kredit)
+table transactions {
+  id uuid [pk]
+  account_id uuid [ref: > accounts.id]
+  category_id uuid [null, ref: > categories.id] // kategori ngikut pemilik account, bukan created_by
+  transfer_id uuid [null] // reserved; PostgreSQL FK deferred until Transfers 5.6 exists
+  type enum('INCOME', 'EXPENSE', 'TRANSFER')
+  amount decimal(20, 2) [not null]
+  transacted_at timestamptz [not null]
+  description text
+  version bigint [not null, default: 1]
+  created_by uuid [not null, ref: > users.id] // actor, owner resolved through accounts/account_types
+  updated_by uuid [not null, ref: > users.id]
+  deleted_by uuid [null, ref: > users.id]
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  deleted_at timestamptz
+}
+
+//////////////////////////////////////////////////////////////
+// BUDGETING
+//////////////////////////////////////////////////////////////
+table budgets {
+  id uuid [pk]
+  category_id uuid [ref: > categories.id]
+  icon varchar
+  anchor_date date // kalo MONTHLY liat tanggalnya, kalau WEEKLY liat hari apa, kalo ANNUAL liat tanggal+bulan
+  period_type enum('MONTHLY', 'WEEKLY', 'DAILY', 'ANNUAL')
+  base_currency varchar [default: 'IDR']
+  description text
+  sequence_order bigint
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  deleted_at timestamptz
+}
+
+// effective-dated row: ubah amount = tutup row lama (effective_to), insert row baru. Histori ga ikut berubah.
+table budget_amounts {
+  id uuid [pk]
+  budget_id uuid [ref: > budgets.id]
+  amount decimal(20, 2)
+  effective_from date
+  effective_to date [null] // null = masih berlaku sekarang
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+}
+
+//////////////////////////////////////////////////////////////
+// INVESTMENT (saham, reksadana, crypto, emas, dll)
+//////////////////////////////////////////////////////////////
+// global, bukan per-user — 1 instrumen = 1 fakta, dipegang lintas user & lintas platform
+table instruments {
+  id uuid [pk]
+  code varchar // BBCA, BTC, RD-SCHRODER-DANA-PRESTASI-PLUS, LM-ANTAM-24K
+  name varchar
+  type enum('STOCK', 'MUTUAL_FUND', 'CRYPTO', 'BOND', 'GOLD', 'OTHER')
+  currency varchar [default: 'IDR']
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  deleted_at timestamptz
+}
+
+// MVP: update manual (source = MANUAL), integrasi API eksternal dinilai belakangan
+table instrument_prices {
+  id uuid [pk]
+  instrument_id uuid [ref: > instruments.id]
+  price_date date
+  close_price decimal(20, 8) // presisi besar, perlu buat crypto
+  source varchar // MANUAL, API_NAME (future)
+  updated_by uuid [ref: > users.id]
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+
+  indexes { (instrument_id, price_date) [unique] }
+}
+
+table investment_transactions {
+  id uuid [pk]
+  instrument_id uuid [ref: > instruments.id]
+  account_id uuid [ref: > accounts.id] // akun investasi tempat holding berubah (BUY: nambah, SELL: berkurang)
+  cash_account_id uuid [null, ref: > accounts.id] // akun cash yg kena dampak sisi uang: sumber dana (BUY) / tujuan dana (SELL, DIVIDEND)
+  linked_transaction_id uuid [null, ref: > transactions.id] // row transactions cash yg otomatis dibikin
+  type enum('BUY', 'SELL', 'DIVIDEND')
+  quantity decimal(20, 8)
+  price_per_unit decimal(20, 8)
+  fee decimal(20, 2)
+  realized_pl decimal(20, 2) [null] // diisi kalau type = SELL
+  transacted_at timestamptz
+  description text
+  version bigint
+  created_by uuid [ref: > users.id]
+  updated_by uuid [ref: > users.id]
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  deleted_at timestamptz
+}
+
+// di-generate event-triggered (begitu ada instrument_prices baru), basis buat grafik & floating P/L
+table portfolio_daily_snapshots {
+  id uuid [pk]
+  account_id uuid [ref: > accounts.id]
+  instrument_id uuid [ref: > instruments.id]
+  snapshot_date date
+  quantity_held decimal(20, 8)
+  avg_cost_price decimal(20, 8)
+  market_price decimal(20, 8)
+  market_value decimal(20, 2) // quantity_held x market_price
+  unrealized_pl decimal(20, 2) // market_value - (quantity_held x avg_cost_price)
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+
+  indexes { (account_id, instrument_id, snapshot_date) [unique] }
+}
+
+//////////////////////////////////////////////////////////////
+// GROUPING (pasutri / keluarga berbagi keuangan)
+//////////////////////////////////////////////////////////////
+table groups {
+  id uuid [pk]
+  code varchar [unique]
+  name varchar
+  is_active boolean
+  created_by uuid [ref: > users.id]
+  updated_by uuid [ref: > users.id]
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  deleted_at timestamptz
+}
+
+table user_groups {
+  id uuid [pk]
+  user_id uuid [ref: > users.id]
+  group_id uuid [ref: > groups.id]
+  role enum('OWNER', 'MEMBER')
+  created_by uuid [ref: > users.id]
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+
+  indexes {
+    (user_id, group_id) [unique]
+  }
+}
+
+// opt-in per account: akun privat tetap privat kecuali sengaja di-link ke grup
+table group_accounts {
+  id uuid [pk]
+  group_id uuid [ref: > groups.id]
+  account_id uuid [ref: > accounts.id]
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+
+  indexes {
+    (group_id, account_id) [unique]
+  }
+}
+
+// kategori gabungan grup, utk agregasi laporan lintas-anggota (mis. total "Makanan" keluarga)
+table group_categories {
+  id uuid [pk]
+  group_id uuid [ref: > groups.id]
+  name varchar
+  type enum('EXPENSE', 'INCOME')
+  created_by uuid [ref: > users.id]
+  updated_by uuid [ref: > users.id]
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+}
+
+// mapping kategori personal -> kategori grup (opsional per user, bukan wajib)
+table mapping_group_categories {
+  id uuid [pk]
+  group_id uuid [ref: > groups.id] // ada kolom ini karena kebutuhan constraint DB di PostgreSQL
+  group_category_id uuid [ref: > group_categories.id]
+  user_category_id uuid [ref: > categories.id]
+  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
+  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+
+  indexes {
+    (group_id, user_category_id) [unique] // 1 kategori personal cuma boleh 1 mapping per grup
+  }
+}

@@ -3,8 +3,12 @@ import { validateRequest } from '../../common/middleware/validate.js';
 import type { AppConfig } from '../../config/env.js';
 import { createAuthController } from './auth.controller.js';
 import { createRequireAuthentication } from './auth.middleware.js';
-import { createLoginRateLimit, createRefreshRateLimit } from './auth-rate-limit.js';
-import { LoginSchema, RefreshTokenSchema } from './auth.schema.js';
+import {
+  createLoginRateLimit,
+  createRefreshRateLimit,
+  createRegisterRateLimit,
+} from './auth-rate-limit.js';
+import { LoginSchema, RefreshTokenSchema, RegisterSchema } from './auth.schema.js';
 import type { AuthSessionStore } from './auth-session.store.js';
 import { AuthService } from './auth.service.js';
 import { AuthTokenService } from './auth-token.service.js';
@@ -29,6 +33,12 @@ export function createAuthRouter(service: AuthService, config: AppConfig): Route
   const controller = createAuthController(service);
   const requireAuthentication = createRequireAuthentication(service);
 
+  router.post(
+    '/register',
+    createRegisterRateLimit(config),
+    validateRequest({ body: RegisterSchema }),
+    controller.register,
+  );
   router.post(
     '/login',
     createLoginRateLimit(config),

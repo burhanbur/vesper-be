@@ -1,27 +1,10 @@
 services:
-  postgres:
-    image: postgres:17-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_DB: vesper
-      POSTGRES_USER: bmafazi
-      POSTGRES_PASSWORD: P@ssw0rd123
-    ports:
-      - '5432:5432'
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: ['CMD-SHELL', 'pg_isready -U bmafazi -d vesper']
-      interval: 5s
-      timeout: 5s
-      retries: 10
-
   redis:
-    image: redis:8-alpine
+    image: redis:7
+    container_name: vesper-redis
     restart: unless-stopped
-    command: ['redis-server', '--appendonly', 'yes']
     ports:
-      - '6379:6379'
+      - '6370:6379'
     volumes:
       - redis_data:/data
     healthcheck:
@@ -31,5 +14,4 @@ services:
       retries: 10
 
 volumes:
-  postgres_data:
   redis_data:

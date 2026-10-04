@@ -13,20 +13,410 @@ enum UserStatus {
   SUSPENDED
 }
 
+enum NotificationType {
+  info
+  error
+  warning
+
+  @@map("notification_type")
+}
+
+model Notification {
+  id        String           @id @db.Uuid
+  userId    String           @map("user_id") @db.Uuid
+  type      NotificationType
+  title     String           @db.VarChar(255)
+  body      String           @db.Text
+  metadata  Json?            @db.JsonB
+  isRead    Boolean          @default(false) @map("is_read")
+  readAt    DateTime?        @map("read_at") @db.Timestamptz(3)
+  createdAt DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user      User             @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc)])
+  @@index([userId, isRead, createdAt(sort: Desc), id(sort: Desc)])
+  @@map("notifications")
+}
+
+model ApiKey {
+  id          String    @id @db.Uuid
+  name        String    @db.VarChar(120)
+  key         String    @unique @db.VarChar(64)
+  description String?   @db.Text
+  application String?   @db.VarChar(120)
+  ipWhitelist Json?     @map("ip_whitelist") @db.JsonB
+  permissions Json?     @db.JsonB
+  isActive    Boolean   @default(true) @map("is_active")
+  rateLimit   Int       @default(60) @map("rate_limit")
+  lastUsedAt  DateTime? @map("last_used_at") @db.Timestamptz(3)
+  expiresAt   DateTime? @map("expires_at") @db.Timestamptz(3)
+  createdBy   String?   @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedBy   String?   @map("updated_by") @db.Uuid
+  updatedAt   DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@index([isActive], map: "idx_api_keys_is_active")
+  @@index([expiresAt], map: "idx_api_keys_expires_at")
+  @@map("api_keys")
+}
+
+enum GroupRole {
+  OWNER
+  MEMBER
+
+  @@map("group_role")
+}
+
+model Group {
+  id         String                 @id @db.Uuid
+  code       String                 @unique @db.VarChar(16)
+  name       String                 @db.VarChar(120)
+  isActive   Boolean                @default(true) @map("is_active")
+  createdBy  String                 @map("created_by") @db.Uuid
+  updatedBy  String                 @map("updated_by") @db.Uuid
+  createdAt  DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt  DateTime?              @map("deleted_at") @db.Timestamptz(3)
+  creator    User                   @relation("GroupCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater    User                   @relation("GroupUpdater", fields: [updatedBy], references: [id], onDelete: Restrict)
+  members    UserGroup[]
+  accounts   GroupAccount[]
+  categories GroupCategory[]
+  mappings   MappingGroupCategory[]
+
+  @@index([isActive, deletedAt, createdAt, id])
+  @@index([createdBy])
+  @@index([updatedBy])
+  @@map("groups")
+}
+
+model UserGroup {
+  id        String    @id @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  groupId   String    @map("group_id") @db.Uuid
+  role      GroupRole
+  createdBy String    @map("created_by") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user      User      @relation("GroupMember", fields: [userId], references: [id], onDelete: Restrict)
+  creator   User      @relation("MembershipCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  group     Group     @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@unique([userId, groupId])
+  @@index([groupId, createdAt, id])
+  @@index([createdBy])
+  @@map("user_groups")
+}
+
+model GroupAccount {
+  id        String   @id @db.Uuid
+  groupId   String   @map("group_id") @db.Uuid
+  accountId String   @map("account_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  group     Group    @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  account   Account  @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([groupId, accountId])
+  @@index([accountId])
+  @@map("group_accounts")
+}
+
+model GroupCategory {
+  id        String                 @id @db.Uuid
+  groupId   String                 @map("group_id") @db.Uuid
+  name      String                 @db.VarChar(120)
+  type      CategoryType
+  createdBy String                 @map("created_by") @db.Uuid
+  updatedBy String                 @map("updated_by") @db.Uuid
+  createdAt DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+  group     Group                  @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  creator   User                   @relation("GroupCategoryCreator", fields: [createdBy], references: [id], onDelete: Restrict)
+  updater   User                   @relation("GroupCategoryUpdater", fields: [updatedBy], references: [id], onDelete: Restrict)
+  mappings  MappingGroupCategory[]
+
+  @@unique([groupId, id])
+  @@index([groupId, type])
+  @@index([createdBy])
+  @@index([updatedBy])
+  @@map("group_categories")
+}
+
+model MappingGroupCategory {
+  id              String        @id @db.Uuid
+  groupId         String        @map("group_id") @db.Uuid
+  groupCategoryId String        @map("group_category_id") @db.Uuid
+  userCategoryId  String        @map("user_category_id") @db.Uuid
+  createdAt       DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  group           Group         @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  groupCategory   GroupCategory @relation(fields: [groupId, groupCategoryId], references: [groupId, id], onDelete: Cascade)
+  userCategory    Category      @relation(fields: [userCategoryId], references: [id], onDelete: Restrict)
+
+  @@unique([groupId, userCategoryId])
+  @@index([groupCategoryId])
+  @@index([userCategoryId])
+  @@map("mapping_group_categories")
+}
+
+enum ProfileGender {
+  MALE   @map("Laki-laki")
+  FEMALE @map("Perempuan")
+
+  @@map("profile_gender")
+}
+
+model UserProfile {
+  userId       String         @id @map("user_id") @db.Uuid
+  fullName     String?        @map("full_name") @db.VarChar(120)
+  phoneNumber  String?        @map("phone_number") @db.VarChar(32)
+  gender       ProfileGender?
+  photo        String?        @db.VarChar(255)
+  baseCurrency String         @default("IDR") @map("base_currency") @db.VarChar(3)
+  theme        String         @default("system") @db.VarChar(16)
+  createdAt    DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime?      @map("deleted_at") @db.Timestamptz(3)
+  user         User           @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([deletedAt])
+  @@map("user_profiles")
+}
+
+model Device {
+  id              String    @id @db.Uuid
+  userId          String    @map("user_id") @db.Uuid
+  name            String    @db.VarChar(120)
+  platform        String    @db.VarChar(16)
+  appVersion      String    @map("app_version") @db.VarChar(64)
+  lastSyncVersion BigInt    @default(0) @map("last_sync_version")
+  lastSyncAt      DateTime? @map("last_sync_at") @db.Timestamptz(3)
+  lastSeenAt      DateTime? @map("last_seen_at") @db.Timestamptz(3)
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  syncChanges SyncChange[]
+
+  @@index([userId, createdAt, id])
+  @@map("devices")
+}
+
+model SyncChange {
+  id         String   @id @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  deviceId   String?  @map("device_id") @db.Uuid
+  entityType String   @map("entity_type") @db.VarChar(32)
+  entityId   String   @map("entity_id") @db.Uuid
+  operation  String   @db.VarChar(8)
+  version    BigInt   @unique @default(autoincrement())
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Restrict)
+  device     Device?  @relation(fields: [deviceId], references: [id], onDelete: SetNull)
+
+  @@index([userId, version])
+  @@index([entityType, entityId, deviceId])
+  @@map("sync_changes")
+}
+
+enum AccountTypeCategory {
+  CASH
+  INVESTMENT
+
+  @@map("account_type_category")
+}
+
+model AccountType {
+  id        String              @id @db.Uuid
+  userId    String              @map("user_id") @db.Uuid
+  name      String              @db.VarChar(120)
+  category  AccountTypeCategory @default(CASH)
+  version   BigInt              @default(1)
+  createdAt DateTime            @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime            @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime?           @map("deleted_at") @db.Timestamptz(3)
+  user      User                @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  accounts  Account[]
+
+  @@index([userId, deletedAt, createdAt, id])
+  @@index([userId, deletedAt, category])
+  @@map("account_types")
+}
+
+model Account {
+  id                         String                   @id @db.Uuid
+  userId                     String                   @map("user_id") @db.Uuid
+  accountTypeId              String                   @map("account_type_id") @db.Uuid
+  parentAccountId            String?                  @map("parent_account_id") @db.Uuid
+  icon                       String?                  @db.VarChar(120)
+  name                       String                   @db.VarChar(120)
+  currency                   String                   @default("IDR") @db.VarChar(3)
+  balance                    Decimal                  @default(0) @db.Decimal(20, 2)
+  description                String?                  @db.Text
+  isVisible                  Boolean                  @default(true) @map("is_visible")
+  isIncludeTotal             Boolean                  @default(true) @map("is_include_total")
+  sequenceOrder              BigInt                   @default(0) @map("sequence_order")
+  version                    BigInt                   @default(1)
+  createdAt                  DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                  DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt                  DateTime?                @map("deleted_at") @db.Timestamptz(3)
+  user                       User                     @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  accountType                AccountType              @relation(fields: [accountTypeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  parent                     Account?                 @relation("AccountHierarchy", fields: [parentAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  children                   Account[]                @relation("AccountHierarchy")
+  transactions               Transaction[]
+  outgoingTransfers          Transfer[]               @relation("TransferFromAccount")
+  incomingTransfers          Transfer[]               @relation("TransferToAccount")
+  investmentTransactions     InvestmentTransaction[]  @relation("InvestmentAccount")
+  cashInvestmentTransactions InvestmentTransaction[]  @relation("InvestmentCashAccount")
+  portfolioSnapshots         PortfolioDailySnapshot[]
+  groupAccounts              GroupAccount[]
+
+  @@index([userId, deletedAt, createdAt, id])
+  @@index([userId, deletedAt, accountTypeId])
+  @@index([userId, deletedAt, isVisible])
+  @@index([parentAccountId, deletedAt])
+  @@index([accountTypeId])
+  @@map("accounts")
+}
+
+enum CategoryType {
+  INCOME
+  EXPENSE
+
+  @@map("category_type")
+}
+
+model Category {
+  id            String                 @id @db.Uuid
+  userId        String                 @map("user_id") @db.Uuid
+  type          CategoryType
+  name          String                 @db.VarChar(120)
+  transactions  Transaction[]
+  budgets       Budget[]
+  groupMappings MappingGroupCategory[]
+  version       BigInt                 @default(1)
+  createdAt     DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt     DateTime?              @map("deleted_at") @db.Timestamptz(3)
+  user          User                   @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([userId, deletedAt, createdAt, id])
+  @@index([userId, deletedAt, type])
+  @@map("categories")
+}
+
+enum TransactionType {
+  INCOME
+  EXPENSE
+  TRANSFER
+
+  @@map("transaction_type")
+}
+
+model Transaction {
+  id                    String                 @id @db.Uuid
+  accountId             String                 @map("account_id") @db.Uuid
+  categoryId            String?                @map("category_id") @db.Uuid
+  transferId            String?                @map("transfer_id") @db.Uuid
+  type                  TransactionType
+  amount                Decimal                @db.Decimal(20, 2)
+  transactedAt          DateTime               @map("transacted_at") @db.Timestamptz(3)
+  description           String?                @db.Text
+  version               BigInt                 @default(1)
+  createdBy             String                 @map("created_by") @db.Uuid
+  updatedBy             String                 @map("updated_by") @db.Uuid
+  deletedBy             String?                @map("deleted_by") @db.Uuid
+  createdAt             DateTime               @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt             DateTime               @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt             DateTime?              @map("deleted_at") @db.Timestamptz(3)
+  account               Account                @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  category              Category?              @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  transfer              Transfer?              @relation(fields: [transferId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  creator               User                   @relation("TransactionCreator", fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updater               User                   @relation("TransactionUpdater", fields: [updatedBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  deleter               User?                  @relation("TransactionDeleter", fields: [deletedBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  investmentTransaction InvestmentTransaction?
+
+  @@index([accountId, deletedAt, transactedAt, id])
+  @@index([accountId, deletedAt, createdAt, id])
+  @@index([categoryId, deletedAt, transactedAt, id])
+  @@index([accountId, deletedAt, type, transactedAt, id])
+  @@index([transferId])
+  @@index([createdBy])
+  @@index([updatedBy])
+  @@index([deletedBy])
+  @@map("transactions")
+}
+
+model Transfer {
+  id            String        @id @db.Uuid
+  fromAccountId String        @map("from_account_id") @db.Uuid
+  toAccountId   String        @map("to_account_id") @db.Uuid
+  amount        Decimal       @db.Decimal(20, 2)
+  transactedAt  DateTime      @map("transacted_at") @db.Timestamptz(3)
+  description   String?       @db.Text
+  version       BigInt        @default(1)
+  createdBy     String        @map("created_by") @db.Uuid
+  updatedBy     String        @map("updated_by") @db.Uuid
+  deletedBy     String?       @map("deleted_by") @db.Uuid
+  createdAt     DateTime      @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt     DateTime?     @map("deleted_at") @db.Timestamptz(3)
+  fromAccount   Account       @relation("TransferFromAccount", fields: [fromAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  toAccount     Account       @relation("TransferToAccount", fields: [toAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  creator       User          @relation("TransferCreator", fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updater       User          @relation("TransferUpdater", fields: [updatedBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  deleter       User?         @relation("TransferDeleter", fields: [deletedBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  transactions  Transaction[]
+
+  @@index([fromAccountId, deletedAt, transactedAt, id])
+  @@index([toAccountId, deletedAt, transactedAt, id])
+  @@index([createdBy])
+  @@index([updatedBy])
+  @@index([deletedBy])
+  @@map("transfers")
+}
+
 model User {
-  id           String     @id @db.Uuid
-  name         String     @db.VarChar(120)
-  username     String?    @unique @db.VarChar(64)
-  email        String     @unique @db.VarChar(255)
-  passwordHash String     @map("password_hash") @db.VarChar(255)
-  status       UserStatus @default(ACTIVE)
-  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
-  deletedAt    DateTime?  @map("deleted_at") @db.Timestamptz(3)
-  createdBy    String?    @map("created_by") @db.Uuid
-  updatedBy    String?    @map("updated_by") @db.Uuid
-  deletedBy    String?    @map("deleted_by") @db.Uuid
-  userRoles    UserRole[]
+  id                            String                  @id @db.Uuid
+  name                          String                  @db.VarChar(120)
+  username                      String?                 @unique @db.VarChar(64)
+  email                         String                  @unique @db.VarChar(255)
+  passwordHash                  String                  @map("password_hash") @db.VarChar(255)
+  status                        UserStatus              @default(ACTIVE)
+  createdAt                     DateTime                @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt                     DateTime                @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt                     DateTime?               @map("deleted_at") @db.Timestamptz(3)
+  createdBy                     String?                 @map("created_by") @db.Uuid
+  updatedBy                     String?                 @map("updated_by") @db.Uuid
+  deletedBy                     String?                 @map("deleted_by") @db.Uuid
+  userRoles                     UserRole[]
+  profile                       UserProfile?
+  devices                       Device[]
+  syncChanges                   SyncChange[]
+  notifications                 Notification[]
+  groupMemberships              UserGroup[]             @relation("GroupMember")
+  createdMemberships            UserGroup[]             @relation("MembershipCreator")
+  createdGroups                 Group[]                 @relation("GroupCreator")
+  updatedGroups                 Group[]                 @relation("GroupUpdater")
+  createdGroupCategories        GroupCategory[]         @relation("GroupCategoryCreator")
+  updatedGroupCategories        GroupCategory[]         @relation("GroupCategoryUpdater")
+  accountTypes                  AccountType[]
+  accounts                      Account[]
+  categories                    Category[]
+  createdTransactions           Transaction[]           @relation("TransactionCreator")
+  updatedTransactions           Transaction[]           @relation("TransactionUpdater")
+  deletedTransactions           Transaction[]           @relation("TransactionDeleter")
+  createdTransfers              Transfer[]              @relation("TransferCreator")
+  updatedTransfers              Transfer[]              @relation("TransferUpdater")
+  deletedTransfers              Transfer[]              @relation("TransferDeleter")
+  updatedInstrumentPrices       InstrumentPrice[]
+  createdInvestmentTransactions InvestmentTransaction[] @relation("InvestmentCreator")
+  updatedInvestmentTransactions InvestmentTransaction[] @relation("InvestmentUpdater")
 
   @@index([status])
   @@index([deletedAt])
@@ -70,8 +460,8 @@ model AuthorizationRoute {
 }
 
 model UserRole {
-  roleId   String   @map("role_id") @db.Uuid
-  userId   String   @map("user_id") @db.Uuid
+  roleId    String   @map("role_id") @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
   createdBy String?  @map("created_by") @db.Uuid
@@ -114,4 +504,155 @@ model StoredFile {
   @@index([createdAt])
   @@index([deletedAt])
   @@map("stored_files")
+}
+
+enum PeriodType {
+  MONTHLY
+  WEEKLY
+  DAILY
+  ANNUAL
+
+  @@map("period_type")
+}
+
+model Budget {
+  id            String         @id @db.Uuid
+  categoryId    String         @map("category_id") @db.Uuid
+  icon          String?        @db.VarChar(120)
+  anchorDate    DateTime       @map("anchor_date") @db.Date
+  periodType    PeriodType     @map("period_type")
+  baseCurrency  String         @default("IDR") @map("base_currency") @db.VarChar(3)
+  description   String?        @db.Text
+  sequenceOrder BigInt         @default(0) @map("sequence_order")
+  createdAt     DateTime       @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt     DateTime?      @map("deleted_at") @db.Timestamptz(3)
+  category      Category       @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  amounts       BudgetAmount[]
+
+  @@index([categoryId, deletedAt, createdAt, id])
+  @@index([categoryId, deletedAt, periodType])
+  @@map("budgets")
+}
+
+model BudgetAmount {
+  id            String    @id @db.Uuid
+  budgetId      String    @map("budget_id") @db.Uuid
+  amount        Decimal   @db.Decimal(20, 2)
+  effectiveFrom DateTime  @map("effective_from") @db.Date
+  effectiveTo   DateTime? @map("effective_to") @db.Date
+  createdAt     DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt     DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  budget        Budget    @relation(fields: [budgetId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([budgetId, effectiveFrom, effectiveTo])
+  @@map("budget_amounts")
+}
+
+enum InstrumentType {
+  STOCK
+  MUTUAL_FUND
+  CRYPTO
+  BOND
+  GOLD
+  OTHER
+
+  @@map("instrument_type")
+}
+
+enum InvestmentTransactionType {
+  BUY
+  SELL
+  DIVIDEND
+
+  @@map("investment_transaction_type")
+}
+
+model Instrument {
+  id           String                   @id @db.Uuid
+  code         String                   @unique @db.VarChar(120)
+  name         String                   @db.VarChar(255)
+  type         InstrumentType
+  currency     String                   @default("IDR") @db.VarChar(3)
+  createdAt    DateTime                 @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime                 @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime?                @map("deleted_at") @db.Timestamptz(3)
+  prices       InstrumentPrice[]
+  transactions InvestmentTransaction[]
+  snapshots    PortfolioDailySnapshot[]
+
+  @@index([deletedAt, code, id])
+  @@map("instruments")
+}
+
+model InstrumentPrice {
+  id           String     @id @db.Uuid
+  instrumentId String     @map("instrument_id") @db.Uuid
+  priceDate    DateTime   @map("price_date") @db.Date
+  closePrice   Decimal    @map("close_price") @db.Decimal(20, 8)
+  source       String     @default("MANUAL") @db.VarChar(120)
+  updatedBy    String     @map("updated_by") @db.Uuid
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  instrument   Instrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updater      User       @relation(fields: [updatedBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([instrumentId, priceDate])
+  @@index([priceDate, id])
+  @@index([updatedBy])
+  @@map("instrument_prices")
+}
+
+model InvestmentTransaction {
+  id                  String                    @id @db.Uuid
+  instrumentId        String                    @map("instrument_id") @db.Uuid
+  accountId           String                    @map("account_id") @db.Uuid
+  cashAccountId       String?                   @map("cash_account_id") @db.Uuid
+  linkedTransactionId String?                   @unique @map("linked_transaction_id") @db.Uuid
+  type                InvestmentTransactionType
+  quantity            Decimal                   @db.Decimal(20, 8)
+  pricePerUnit        Decimal                   @map("price_per_unit") @db.Decimal(20, 8)
+  fee                 Decimal                   @db.Decimal(20, 2)
+  realizedPl          Decimal?                  @map("realized_pl") @db.Decimal(20, 2)
+  transactedAt        DateTime                  @map("transacted_at") @db.Timestamptz(3)
+  description         String?                   @db.Text
+  version             BigInt                    @default(1)
+  createdBy           String                    @map("created_by") @db.Uuid
+  updatedBy           String                    @map("updated_by") @db.Uuid
+  createdAt           DateTime                  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt           DateTime                  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt           DateTime?                 @map("deleted_at") @db.Timestamptz(3)
+  instrument          Instrument                @relation(fields: [instrumentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  account             Account                   @relation("InvestmentAccount", fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  cashAccount         Account?                  @relation("InvestmentCashAccount", fields: [cashAccountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  linkedTransaction   Transaction?              @relation(fields: [linkedTransactionId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  creator             User                      @relation("InvestmentCreator", fields: [createdBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  updater             User                      @relation("InvestmentUpdater", fields: [updatedBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([accountId, instrumentId, transactedAt], map: "investment_transactions_account_instrument_time_key")
+  @@index([instrumentId, accountId, deletedAt, transactedAt, id], map: "investment_transactions_instrument_account_history_idx")
+  @@index([cashAccountId])
+  @@index([createdBy])
+  @@index([updatedBy])
+  @@map("investment_transactions")
+}
+
+model PortfolioDailySnapshot {
+  id           String     @id @db.Uuid
+  accountId    String     @map("account_id") @db.Uuid
+  instrumentId String     @map("instrument_id") @db.Uuid
+  snapshotDate DateTime   @map("snapshot_date") @db.Date
+  quantityHeld Decimal    @map("quantity_held") @db.Decimal(20, 8)
+  avgCostPrice Decimal    @map("avg_cost_price") @db.Decimal(20, 8)
+  marketPrice  Decimal    @map("market_price") @db.Decimal(20, 8)
+  marketValue  Decimal    @map("market_value") @db.Decimal(20, 2)
+  unrealizedPl Decimal    @map("unrealized_pl") @db.Decimal(20, 2)
+  createdAt    DateTime   @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime   @updatedAt @map("updated_at") @db.Timestamptz(3)
+  account      Account    @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  instrument   Instrument @relation(fields: [instrumentId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([accountId, instrumentId, snapshotDate], map: "portfolio_snapshots_account_instrument_date_key")
+  @@index([instrumentId, snapshotDate, accountId], map: "portfolio_snapshots_instrument_date_account_idx")
+  @@map("portfolio_daily_snapshots")
 }

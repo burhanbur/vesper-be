@@ -4,7 +4,7 @@ import { generateId } from '../../common/utils/id.js';
 import type { AppConfig } from '../../config/env.js';
 import type { AuthUserRepository } from './auth-user.repository.js';
 import { digestToken } from './auth.crypto.js';
-import type { LoginInput } from './auth.schema.js';
+import type { LoginInput, RegisterInput } from './auth.schema.js';
 import type { AuthSessionStore } from './auth-session.store.js';
 import type { AccessClaims, RefreshClaims } from './auth-token.service.js';
 import {
@@ -64,6 +64,28 @@ export class AuthService {
   constructor(private readonly dependencies: AuthServiceDependencies) {
     this.now = dependencies.now ?? (() => new Date());
     this.verifyPassword = dependencies.verifyPassword ?? argon2.verify;
+  }
+
+  async register(input: RegisterInput): Promise<AuthResult> {
+    const passwordHash = await argon2.hash(input.password, { type: argon2.argon2id });
+    const user = await this.dependencies.repository.createUser({
+      id: generateId(),
+      name: input.name,
+      ...(input.username !== undefined ? { username: input.username } : {}),
+      email: input.email,
+      passwordHash,
+    });
+
+    const tokens = await this.issueTokens(user.id, generateId(), this.now());
+    await this.dependencies.sessionStore.createSession({
+      userId: user.id,
+      sessionId: tokens.sessionId,
+      accessTokenDigest: digestToken(tokens.value.accessToken),
+      refreshTokenDigest: digestToken(tokens.value.refreshToken),
+      expiresAt: tokens.value.refreshExpiresAt,
+    });
+
+    return { user: toAuthUserDto(user), tokens: tokens.value };
   }
 
   async login(input: LoginInput): Promise<AuthResult> {

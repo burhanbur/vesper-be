@@ -2,7 +2,7 @@ import type { RequestHandler } from 'express';
 import { sendSuccess } from '../../common/http/api-response.js';
 import type { ValidatedInput } from '../../common/middleware/validate.js';
 import { readBearerToken } from './auth.middleware.js';
-import type { LoginInput, RefreshTokenInput } from './auth.schema.js';
+import type { LoginInput, RefreshTokenInput, RegisterInput } from './auth.schema.js';
 import type { AuthService } from './auth.service.js';
 import type { AuthPrincipal, AuthResult } from './auth.types.js';
 
@@ -22,6 +22,17 @@ function authResponse(result: AuthResult) {
 }
 
 export function createAuthController(service: AuthService) {
+  const register: RequestHandler = async (request, response) => {
+    const input = validated(response.locals).body as RegisterInput;
+    const result = await service.register(input);
+    response.set('Cache-Control', 'no-store');
+    sendSuccess(request, response, {
+      statusCode: 201,
+      data: authResponse(result),
+      message: 'Registrasi berhasil.',
+    });
+  };
+
   const login: RequestHandler = async (request, response) => {
     const input = validated(response.locals).body as LoginInput;
     const result = await service.login(input);
@@ -64,5 +75,5 @@ export function createAuthController(service: AuthService) {
     });
   };
 
-  return { login, refresh, logout, me };
+  return { register, login, refresh, logout, me };
 }

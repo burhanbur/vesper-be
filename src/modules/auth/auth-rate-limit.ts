@@ -23,6 +23,13 @@ export function createLoginRateLimit(config: AppConfig) {
   );
 }
 
+export function createRegisterRateLimit(config: AppConfig) {
+  return createAuthRateLimit(
+    config.AUTH_LOGIN_RATE_LIMIT_WINDOW_MS,
+    config.AUTH_LOGIN_RATE_LIMIT_MAX,
+  );
+}
+
 export function createRefreshRateLimit(config: AppConfig) {
   return createAuthRateLimit(
     config.AUTH_REFRESH_RATE_LIMIT_WINDOW_MS,

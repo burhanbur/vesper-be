@@ -13,6 +13,13 @@ const LoginByEmailSchema = z.strictObject({
 
 export const LoginSchema = z.union([LoginByUsernameSchema, LoginByEmailSchema]);
 
+export const RegisterSchema = z.strictObject({
+  name: z.string().trim().min(2).max(120),
+  username: z.string().trim().min(3).max(64).toLowerCase().optional(),
+  email: z.email().trim().toLowerCase(),
+  password: z.string().min(8).max(128),
+});
+
 export const RefreshTokenSchema = z.strictObject({
   refresh_token: z.string().min(1),
 });
@@ -35,5 +42,6 @@ export const AuthPayloadDtoSchema = z.object({
 });
 
 export type LoginInput = z.infer<typeof LoginSchema>;
+export type RegisterInput = z.infer<typeof RegisterSchema>;
 export type RefreshTokenInput = z.infer<typeof RefreshTokenSchema>;
 export type AuthPayloadDto = z.infer<typeof AuthPayloadDtoSchema>;

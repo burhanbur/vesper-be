@@ -9,6 +9,7 @@ import {
   AuthUserDtoSchema,
   LoginSchema,
   RefreshTokenSchema,
+  RegisterSchema,
 } from '../modules/auth/auth.schema.js';
 import {
   FileDtoSchema,
@@ -24,7 +25,35 @@ import {
   UserIdParamsSchema,
 } from '../modules/users/user.schema.js';
 
+import { registerProfileOpenApi } from '../modules/profiles/profile.openapi.js';
+import { registerDeviceOpenApi } from '../modules/devices/device.openapi.js';
+import { registerAccountTypeOpenApi } from '../modules/account-types/account-type.openapi.js';
+import { registerAccountOpenApi } from '../modules/accounts/account.openapi.js';
+import { registerCategoryOpenApi } from '../modules/categories/category.openapi.js';
+import { registerTransactionOpenApi } from '../modules/transactions/transaction.openapi.js';
+import { registerTransferOpenApi } from '../modules/transfers/transfer.openapi.js';
+import { registerBudgetOpenApi } from '../modules/budgets/budget.openapi.js';
+import { registerInvestmentOpenApi } from '../modules/investments/investment.openapi.js';
+import { registerGroupOpenApi } from '../modules/groups/group.openapi.js';
+
+import { registerSyncOpenApi } from '../modules/sync/sync.openapi.js';
+import { registerNotificationOpenApi } from '../modules/notifications/notification.openapi.js';
+import { registerApiKeyOpenApi } from '../modules/api-keys/api-key.openapi.js';
+
 const registry = new OpenAPIRegistry();
+registerApiKeyOpenApi(registry);
+registerNotificationOpenApi(registry);
+registerSyncOpenApi(registry);
+registerProfileOpenApi(registry);
+registerDeviceOpenApi(registry);
+registerAccountTypeOpenApi(registry);
+registerAccountOpenApi(registry);
+registerCategoryOpenApi(registry);
+registerTransactionOpenApi(registry);
+registerTransferOpenApi(registry);
+registerBudgetOpenApi(registry);
+registerInvestmentOpenApi(registry);
+registerGroupOpenApi(registry);
 registry.registerComponent('securitySchemes', 'bearerAuth', {
   type: 'http',
   scheme: 'bearer',
@@ -105,6 +134,41 @@ registry.registerPath({
     },
     503: {
       description: 'A dependency is unavailable.',
+      content: { 'application/json': { schema: ErrorResponse } },
+    },
+  },
+});
+
+registry.registerPath({
+  method: 'post',
+  path: '/api/v1/auth/register',
+  tags: ['Authentication'],
+  summary: 'Register a new user',
+  description:
+    'Creates a new user account with active status and returns initial access and refresh tokens.',
+  operationId: 'register',
+  request: {
+    body: { required: true, content: { 'application/json': { schema: RegisterSchema } } },
+  },
+  responses: {
+    201: {
+      description: 'User registered and authenticated; access and refresh JWTs returned.',
+      content: { 'application/json': { schema: AuthResponse } },
+    },
+    400: {
+      description: 'Invalid request body.',
+      content: { 'application/json': { schema: ErrorResponse } },
+    },
+    409: {
+      description: 'Email or username already exists.',
+      content: { 'application/json': { schema: ErrorResponse } },
+    },
+    422: {
+      description: 'Validation failed.',
+      content: { 'application/json': { schema: ErrorResponse } },
+    },
+    429: {
+      description: 'Authentication rate limit exceeded.',
       content: { 'application/json': { schema: ErrorResponse } },
     },
   },
@@ -605,5 +669,6 @@ export const openApiDocument = generator.generateDocument({
     },
     { name: 'Users', description: 'User management and Excel import/export' },
     { name: 'Files', description: 'Validated file storage and metadata management' },
+    { name: 'Categories', description: 'Owner-only income and expense categories; no RBAC' },
   ],
 });
