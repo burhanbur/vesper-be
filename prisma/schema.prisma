@@ -229,6 +229,15 @@ enum AccountTypeCategory {
   @@map("account_type_category")
 }
 
+model RefAccountType {
+  id        String   @id @db.Uuid
+  name      String   @unique @db.VarChar(120)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("ref_account_types")
+}
+
 model AccountType {
   id        String              @id @db.Uuid
   userId    String              @map("user_id") @db.Uuid
@@ -288,6 +297,17 @@ enum CategoryType {
   EXPENSE
 
   @@map("category_type")
+}
+
+model RefCategory {
+  id        String       @id @db.Uuid
+  name      String       @db.VarChar(120)
+  type      CategoryType
+  createdAt DateTime     @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime     @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@unique([name, type])
+  @@map("ref_categories")
 }
 
 model Category {

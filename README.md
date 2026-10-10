@@ -73,6 +73,10 @@ When `API_DOCS_ENABLED=true` and `NODE_ENV` is not `production`:
 
 Generate a static local artifact with `npm run openapi:generate`. Validate the document with `npm run openapi:validate`.
 
+### Shared Reference Data
+
+Authenticated read-only lists are available at `GET /api/v1/ref-categories` and `GET /api/v1/ref-account-types`. Ordinary active users need no additional RBAC permission. See [`docs/references.md`](docs/references.md) for query, DTO, pagination, and composition contracts.
+
 ## API Response Contract
 
 Responses intentionally match `app/Traits/ApiResponse.php` from the Laravel Starter Kit.

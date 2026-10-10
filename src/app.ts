@@ -90,8 +90,14 @@ import {
   type ApiKeyRepository,
 } from './modules/api-keys/api-key.repository.js';
 import { createApiKeyRouter } from './modules/api-keys/api-key.route.js';
+import {
+  PrismaReferenceRepository,
+  type ReferenceRepository,
+} from './modules/references/reference.repository.js';
+import { createReferenceRouter } from './modules/references/reference.route.js';
 
 export type AppDependencies = {
+  referenceRepository?: ReferenceRepository;
   userRepository: UserRepository;
   health: HealthDependencies;
   authRepository: AuthUserRepository;
@@ -117,6 +123,7 @@ export type AppDependencies = {
 function defaultDependencies(): AppDependencies {
   const synced = syncClient(prisma);
   return {
+    referenceRepository: new PrismaReferenceRepository(prisma),
     apiKeyRepository: new PrismaApiKeyRepository(prisma),
     notificationRepository: new PrismaNotificationRepository(prisma),
     syncRepository: new SyncRepository(prisma),
@@ -186,6 +193,9 @@ export function createApp(dependencies: AppDependencies = defaultDependencies())
     config,
   );
   app.use('/api/v1/auth', createAuthRouter(authService, config));
+  if (dependencies.referenceRepository) {
+    app.use('/api/v1', createReferenceRouter(dependencies.referenceRepository, authService));
+  }
   app.use(
     '/api/v1/users',
     createUserRouter(

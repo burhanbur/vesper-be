@@ -39,8 +39,10 @@ import { registerGroupOpenApi } from '../modules/groups/group.openapi.js';
 import { registerSyncOpenApi } from '../modules/sync/sync.openapi.js';
 import { registerNotificationOpenApi } from '../modules/notifications/notification.openapi.js';
 import { registerApiKeyOpenApi } from '../modules/api-keys/api-key.openapi.js';
+import { registerReferenceOpenApi } from '../modules/references/reference.openapi.js';
 
 const registry = new OpenAPIRegistry();
+registerReferenceOpenApi(registry);
 registerApiKeyOpenApi(registry);
 registerNotificationOpenApi(registry);
 registerSyncOpenApi(registry);
