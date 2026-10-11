@@ -1055,13 +1055,29 @@ const seedAccounts: AccountSeedDef[] = [
     sequenceOrder: 5n,
   },
 
-  // 4. Reksadana (Platform accounts: Bareksa, Bibit)
+  // 4. Mutual funds (Bareksa groups fund accounts; exclude the parent from totals)
   {
     id: '0199a1b5-0000-7000-8000-000000000030',
     accountTypeName: 'Reksadana',
     name: 'Bareksa',
+    isIncludeTotal: false,
+    sequenceOrder: 1n,
+  },
+  {
+    id: '0199a1b5-0000-7000-8000-000000000031',
+    accountTypeName: 'Reksadana',
+    parentAccountId: '0199a1b5-0000-7000-8000-000000000030',
+    name: 'Reksadana STAR Stable Income Fund',
     isIncludeTotal: true,
     sequenceOrder: 1n,
+  },
+  {
+    id: '0199a1b5-0000-7000-8000-000000000032',
+    accountTypeName: 'Reksadana',
+    parentAccountId: '0199a1b5-0000-7000-8000-000000000030',
+    name: 'Reksadana Syailendra Stable Income Fund',
+    isIncludeTotal: true,
+    sequenceOrder: 2n,
   },
   {
     id: '0199a1b5-0000-7000-8000-000000000033',
@@ -1087,20 +1103,13 @@ const seedAccounts: AccountSeedDef[] = [
     sequenceOrder: 2n,
   },
 
-  // 6. Hutang & Piutang (Gw ngutang, Gw ngutangin)
+  // 6. Personal debts and receivables (Hutang)
   {
     id: '0199a1b5-0000-7000-8000-000000000050',
     accountTypeName: 'Hutang & Piutang',
-    name: 'Gw ngutang',
-    isIncludeTotal: false,
-    sequenceOrder: 1n,
-  },
-  {
-    id: '0199a1b5-0000-7000-8000-000000000051',
-    accountTypeName: 'Hutang & Piutang',
-    name: 'Gw ngutangin',
+    name: 'Hutang',
     isIncludeTotal: true,
-    sequenceOrder: 2n,
+    sequenceOrder: 1n,
   },
 ];
 
