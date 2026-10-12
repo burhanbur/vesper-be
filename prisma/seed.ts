@@ -902,7 +902,7 @@ const seedAccounts: AccountSeedDef[] = [
     sequenceOrder: 2n,
   },
 
-  // 2. Rekening Bank (Mandiri, BCA, BRI, BSI, Jago [Main, Sandang, Pangan, Papan, Travel, Dana Darurat, Sedekah], RDN BCA - Stockbit, RDN BCA - Ajaib, RDN BCA - Bareksa)
+  // 2. Rekening Bank (Mandiri, BCA, BRI, BSI, Jago [Main, Sandang, Pangan, Papan, Travel, Dana Darurat, Sedekah], RDN BCA - Stockbit, RDN BCA - Ajaib, RDN BCA - Bareksa, RDN Indopremier)
   {
     id: '0199a1b5-0000-7000-8000-000000000010',
     accountTypeName: 'Rekening Bank',
@@ -1016,6 +1016,13 @@ const seedAccounts: AccountSeedDef[] = [
     name: 'RDN BCA - Bareksa',
     isIncludeTotal: true,
     sequenceOrder: 8n,
+  },
+  {
+    id: '0199a1b5-0000-7000-8000-00000000001f',
+    accountTypeName: 'Rekening Bank',
+    name: 'RDN Indopremier',
+    isIncludeTotal: true,
+    sequenceOrder: 9n,
   },
 
   // 3. E-wallet (GoPay, OVO, LinkAja, DANA, ShopeePay)
