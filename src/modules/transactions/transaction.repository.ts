@@ -1,9 +1,12 @@
+import { generateId } from '../../common/utils/id.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { accessibleAccount } from '../../common/authorization/account-access.js';
 import { Prisma, type PrismaClient, type Account } from '../../generated/prisma/client.js';
 import { lockLedgerAccounts, recomputeLedgerBalances } from './ledger.js';
 import {
   CreateTransactionSchema,
+  type BatchCreateResult,
+  type BatchTransactionItem,
   type CreateTransactionInput,
   type ListTransactionsQuery,
   type UpdateTransactionInput,
@@ -16,6 +19,7 @@ export interface TransactionRepository {
     query: ListTransactionsQuery,
   ): Promise<{ items: TransactionRecord[]; total: number }>;
   create(userId: string, id: string, input: CreateTransactionInput): Promise<TransactionRecord>;
+  createBatch(userId: string, items: BatchTransactionItem[]): Promise<BatchCreateResult>;
   update(userId: string, id: string, input: UpdateTransactionInput): Promise<TransactionRecord>;
   softDelete(userId: string, id: string, version: bigint): Promise<void>;
 }
@@ -42,7 +46,7 @@ function invalid(code: string, message: string): never {
 const ownedAccount = accessibleAccount;
 
 export class PrismaTransactionRepository implements TransactionRepository {
-  constructor(private readonly client: PrismaClient) {}
+  constructor(private readonly client: PrismaClient) { }
 
   async list(userId: string, query: ListTransactionsQuery) {
     const dates = query.date_range?.split(',');
@@ -260,6 +264,165 @@ export class PrismaTransactionRepository implements TransactionRepository {
       const record = await tx.transaction.findUnique({ where: { id } });
       if (!record) throw new Error('Transaction mutation result missing');
       return record;
+    });
+  }
+
+  createBatch(userId: string, items: BatchTransactionItem[]): Promise<BatchCreateResult> {
+    if (items.length === 0) return Promise.resolve({ count: 0 });
+
+    return this.write(userId, async (tx) => {
+      const allAccountIds = new Set<string>();
+      for (const item of items) {
+        if (item.type === 'TRANSFER') {
+          allAccountIds.add(item.from_account_id);
+          allAccountIds.add(item.to_account_id);
+        } else {
+          allAccountIds.add(item.account_id);
+        }
+      }
+
+      const categoryIds = new Set<string>();
+      for (const item of items) {
+        if (item.type !== 'TRANSFER') {
+          categoryIds.add(item.category_id);
+        }
+      }
+
+      // Follow single-create lock ordering; re-read active categories only after row locks.
+      const accounts = await this.lockReferences(tx, userId, [...allAccountIds], [...categoryIds]);
+      const accountMap = new Map(accounts.map((account) => [account.id, account]));
+      const accountTypes = await tx.accountType.findMany({
+        where: {
+          id: { in: [...new Set(accounts.map((account) => account.accountTypeId))] },
+          deletedAt: null,
+        },
+        select: { id: true, userId: true },
+      });
+      const ownerMap = new Map(
+        accountTypes.map((accountType) => [accountType.id, accountType.userId]),
+      );
+
+      const categories = await tx.category.findMany({
+        where: {
+          id: { in: [...categoryIds] },
+          deletedAt: null,
+        },
+      });
+      const categoryMap = new Map(categories.map((c) => [c.id, c]));
+
+      for (const item of items) {
+        if (item.type !== 'TRANSFER') {
+          const account = accountMap.get(item.account_id);
+          if (!account) {
+            invalid(
+              'TRANSACTION_ACCOUNT_INVALID',
+              'Akun aktif yang dapat diakses tidak ditemukan.',
+            );
+          }
+          const ownerId = ownerMap.get(account.accountTypeId);
+          if (!ownerId) {
+            invalid(
+              'TRANSACTION_ACCOUNT_INVALID',
+              'Akun aktif yang dapat diakses tidak ditemukan.',
+            );
+          }
+          const category = categoryMap.get(item.category_id);
+          if (category?.userId !== ownerId || category.type !== item.type) {
+            invalid(
+              'TRANSACTION_CATEGORY_INVALID',
+              'Kategori aktif harus milik pemilik akun dan sesuai tipe transaksi.',
+            );
+          }
+        } else {
+          if (item.from_account_id === item.to_account_id) {
+            invalid('TRANSFER_ACCOUNTS_DISTINCT', 'Akun asal dan tujuan harus berbeda.');
+          }
+          const from = accountMap.get(item.from_account_id);
+          const to = accountMap.get(item.to_account_id);
+          if (!from || !to || from.currency !== 'IDR' || to.currency !== 'IDR') {
+            invalid(
+              'TRANSFER_CURRENCY_MISMATCH',
+              'Akun asal dan tujuan harus memiliki mata uang yang sama.',
+            );
+          }
+        }
+      }
+
+      const txRows: Prisma.TransactionCreateManyInput[] = [];
+      const transferRows: Prisma.TransferCreateManyInput[] = [];
+
+      for (const item of items) {
+        if (item.type === 'TRANSFER') {
+          const transferId = generateId();
+          const amount = new Prisma.Decimal(item.amount);
+          const transactedAt = new Date(item.transacted_at);
+
+          transferRows.push({
+            id: transferId,
+            fromAccountId: item.from_account_id,
+            toAccountId: item.to_account_id,
+            amount,
+            transactedAt,
+            description: item.description,
+            createdBy: userId,
+            updatedBy: userId,
+            version: 1n,
+          });
+
+          txRows.push(
+            {
+              id: generateId(),
+              accountId: item.from_account_id,
+              categoryId: null,
+              transferId,
+              type: 'TRANSFER',
+              amount: amount.negated(),
+              transactedAt,
+              description: item.description,
+              createdBy: userId,
+              updatedBy: userId,
+              version: 1n,
+            },
+            {
+              id: generateId(),
+              accountId: item.to_account_id,
+              categoryId: null,
+              transferId,
+              type: 'TRANSFER',
+              amount,
+              transactedAt,
+              description: item.description,
+              createdBy: userId,
+              updatedBy: userId,
+              version: 1n,
+            },
+          );
+        } else {
+          txRows.push({
+            id: generateId(),
+            accountId: item.account_id,
+            categoryId: item.category_id,
+            type: item.type,
+            amount: new Prisma.Decimal(item.amount),
+            transactedAt: new Date(item.transacted_at),
+            description: item.description,
+            createdBy: userId,
+            updatedBy: userId,
+            version: 1n,
+          });
+        }
+      }
+
+      if (transferRows.length > 0) {
+        await tx.transfer.createMany({ data: transferRows });
+      }
+      if (txRows.length > 0) {
+        await tx.transaction.createMany({ data: txRows });
+      }
+
+      await this.recompute(tx, accounts);
+
+      return { count: items.length };
     });
   }
 }

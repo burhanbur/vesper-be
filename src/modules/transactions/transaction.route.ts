@@ -5,6 +5,7 @@ import type { AuthService } from '../auth/auth.service.js';
 import { createTransactionController } from './transaction.controller.js';
 import type { TransactionRepository } from './transaction.repository.js';
 import {
+  BatchCreateTransactionsSchema,
   CreateTransactionSchema,
   DeleteTransactionQuerySchema,
   ListTransactionsQuerySchema,
@@ -22,6 +23,11 @@ export function createTransactionRouter(
   router.use(createRequireAuthentication(authService));
   router.get('/', validateRequest({ query: ListTransactionsQuerySchema }), controller.list);
   router.post('/', validateRequest({ body: CreateTransactionSchema }), controller.create);
+  router.post(
+    '/batch',
+    validateRequest({ body: BatchCreateTransactionsSchema }),
+    controller.createBatch,
+  );
   router.patch(
     '/:id',
     validateRequest({ params: TransactionIdParamsSchema, body: UpdateTransactionSchema }),

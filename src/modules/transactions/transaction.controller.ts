@@ -3,6 +3,7 @@ import { sendSuccess } from '../../common/http/api-response.js';
 import type { ValidatedInput } from '../../common/middleware/validate.js';
 import type { AuthPrincipal } from '../auth/auth.types.js';
 import type {
+  BatchCreateTransactionsInput,
   CreateTransactionInput,
   DeleteTransactionQuery,
   ListTransactionsQuery,
@@ -35,6 +36,20 @@ export function createTransactionController(service: TransactionService) {
       message: 'Transaksi berhasil dibuat.',
     });
   };
+  const createBatch: RequestHandler = async (request, response) => {
+    const principal = response.locals.auth as AuthPrincipal;
+    const validated = response.locals.validated as ValidatedInput;
+    const data = await service.createBatch(
+      principal.id,
+      validated.body as BatchCreateTransactionsInput,
+    );
+    response.set('Cache-Control', 'no-store');
+    sendSuccess(request, response, {
+      data,
+      statusCode: 201,
+      message: `${data.count} transaksi berhasil diimpor.`,
+    });
+  };
   const update: RequestHandler = async (request, response) => {
     const principal = response.locals.auth as AuthPrincipal;
     const validated = response.locals.validated as ValidatedInput;
@@ -52,5 +67,5 @@ export function createTransactionController(service: TransactionService) {
     response.set('Cache-Control', 'no-store');
     sendSuccess(request, response, { data: null, message: 'Transaksi berhasil dihapus.' });
   };
-  return { list, create, update, remove };
+  return { list, create, createBatch, update, remove };
 }

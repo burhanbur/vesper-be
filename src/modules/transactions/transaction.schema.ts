@@ -93,3 +93,34 @@ export type ListTransactionsQuery = z.infer<typeof ListTransactionsQuerySchema>;
 export type TransactionIdParams = z.infer<typeof TransactionIdParamsSchema>;
 export type DeleteTransactionQuery = z.infer<typeof DeleteTransactionQuerySchema>;
 export type TransactionDto = z.infer<typeof TransactionDtoSchema>;
+
+export const BatchTransactionItemSchema = z.discriminatedUnion('type', [
+  z.strictObject({
+    type: z.enum(['INCOME', 'EXPENSE']),
+    account_id: z.uuid(),
+    category_id: z.uuid(),
+    amount: TransactionAmountSchema,
+    transacted_at: z.iso.datetime(),
+    description: z.string().trim().min(1).max(5000).nullable().default(null),
+  }),
+  z.strictObject({
+    type: z.literal('TRANSFER'),
+    from_account_id: z.uuid(),
+    to_account_id: z.uuid(),
+    amount: TransactionAmountSchema,
+    transacted_at: z.iso.datetime(),
+    description: z.string().trim().min(1).max(5000).nullable().default(null),
+  }),
+]);
+
+export const BatchCreateTransactionsSchema = z.strictObject({
+  items: z.array(BatchTransactionItemSchema).min(1).max(1000),
+});
+
+export const BatchCreateResultSchema = z.strictObject({
+  count: z.number().int().nonnegative(),
+});
+
+export type BatchTransactionItem = z.infer<typeof BatchTransactionItemSchema>;
+export type BatchCreateTransactionsInput = z.infer<typeof BatchCreateTransactionsSchema>;
+export type BatchCreateResult = z.infer<typeof BatchCreateResultSchema>;

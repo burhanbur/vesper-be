@@ -7,6 +7,8 @@ import {
 import { z } from '../../common/openapi/zod.js';
 import { AccountDtoSchema } from '../accounts/account.schema.js';
 import {
+  BatchCreateResultSchema,
+  BatchCreateTransactionsSchema,
   CreateTransactionSchema,
   DeleteTransactionQuerySchema,
   ListTransactionsQuerySchema,
@@ -114,15 +116,15 @@ export function registerTransactionOpenApi(registry: OpenAPIRegistry): void {
           data: list ? [example] : example,
           ...(list
             ? {
-                pagination: {
-                  total: 1,
-                  per_page: 20,
-                  current_page: 1,
-                  last_page: 1,
-                  from: 1,
-                  to: 1,
-                },
-              }
+              pagination: {
+                total: 1,
+                per_page: 20,
+                current_page: 1,
+                last_page: 1,
+                from: 1,
+                to: 1,
+              },
+            }
             : {}),
         },
       },
@@ -165,6 +167,53 @@ export function registerTransactionOpenApi(registry: OpenAPIRegistry): void {
       201: success('Transaction created; balance recomputed.', 'Transaksi berhasil dibuat.'),
       409: conflict,
       ...commonErrors,
+    },
+  });
+  registry.registerPath({
+    method: 'post',
+    path: '/api/v1/transactions/batch',
+    tags,
+    security,
+    operationId: 'createBatchTransactions',
+    summary: 'Import a batch of transactions',
+    description:
+      'Authenticated; no RBAC permission required. Strict items array of 1–1000 entries. INCOME/EXPENSE require account_id and category_id; TRANSFER requires distinct from_account_id/to_account_id, both accessible and IDR. All accounts and account types must be active and owned or explicitly shared. Manual categories must be active, match the transaction type and belong to each target account-type owner, not the importing actor. Positive decimal(20,2) STRING amount; transacted_at follows the batch ISO datetime schema. Description omitted/null or trimmed nonempty <=5000 characters. Sorted owner/grant/type/account/category locks precede category validation. All entries and affected balance recomputation commit atomically; any failure rolls back the entire batch. Transfers create two signed ledger rows, but count reports input entries. Server generates IDs, audit fields and versions. POST retries are not idempotent; do not retry an ambiguous success automatically.',
+    request: {
+      body: {
+        required: true,
+        content: {
+          'application/json': {
+            schema: BatchCreateTransactionsSchema,
+            example: { items: [bodyExample] },
+          },
+        },
+      },
+    },
+    responses: {
+      201: {
+        description: 'Entire batch imported; balances recomputed. Count is the input item count.',
+        content: {
+          'application/json': {
+            schema: createSuccessResponseSchema(BatchCreateResultSchema),
+            example: {
+              success: true,
+              message: '1 transaksi berhasil diimpor.',
+              timestamp: '2026-10-04 10:00:00',
+              total_data: 1,
+              data: { count: 1 },
+            },
+          },
+        },
+      },
+      ...commonErrors,
+      422: error(
+        'Invalid batch schema, inaccessible/inactive account or type, invalid category owner/type/activity, identical transfer accounts or unsupported transfer currency. Entire batch rolls back.',
+        'Permintaan tidak valid.',
+      ),
+      409: error(
+        'Ledger inconsistency, balance overflow or exhausted/stale account version; entire batch rolls back. Account limit/version conflicts include errors.server_data with the affected Account DTO.',
+        'Data ledger atau saldo akun tidak valid.',
+      ),
     },
   });
   registry.registerPath({

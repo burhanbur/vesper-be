@@ -176,6 +176,7 @@ export function createApp(dependencies: AppDependencies = defaultDependencies())
         );
       },
       credentials: false,
+      exposedHeaders: ['Retry-After'],
     }),
   );
   app.use(express.json({ limit: config.BODY_LIMIT_BYTES }));

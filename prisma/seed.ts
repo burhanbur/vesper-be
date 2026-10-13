@@ -1020,7 +1020,7 @@ const seedAccounts: AccountSeedDef[] = [
   {
     id: '0199a1b5-0000-7000-8000-00000000001f',
     accountTypeName: 'Rekening Bank',
-    name: 'RDN Indopremier',
+    name: 'RDN Permata - Indopremier',
     isIncludeTotal: true,
     sequenceOrder: 9n,
   },
@@ -1087,6 +1087,14 @@ const seedAccounts: AccountSeedDef[] = [
     sequenceOrder: 2n,
   },
   {
+    id: '0199a1b5-0000-7000-8000-000000000034',
+    accountTypeName: 'Reksadana',
+    parentAccountId: '0199a1b5-0000-7000-8000-000000000030',
+    name: 'Reksadana Succorinvest Stable Fund',
+    isIncludeTotal: true,
+    sequenceOrder: 3n,
+  },
+  {
     id: '0199a1b5-0000-7000-8000-000000000033',
     accountTypeName: 'Reksadana',
     name: 'Bibit',
@@ -1094,11 +1102,19 @@ const seedAccounts: AccountSeedDef[] = [
     sequenceOrder: 2n,
   },
 
-  // 5. Saham (Platform accounts: Stockbit, Bareksa)
+  // 5. Saham (Platform accounts: Stockbit, Bareksa with stock sub-accounts)
   {
     id: '0199a1b5-0000-7000-8000-000000000040',
     accountTypeName: 'Saham',
     name: 'Stockbit',
+    isIncludeTotal: false,
+    sequenceOrder: 1n,
+  },
+  {
+    id: '0199a1b5-0000-7000-8000-000000000041',
+    accountTypeName: 'Saham',
+    parentAccountId: '0199a1b5-0000-7000-8000-000000000040',
+    name: 'TLKM',
     isIncludeTotal: true,
     sequenceOrder: 1n,
   },
@@ -1106,6 +1122,22 @@ const seedAccounts: AccountSeedDef[] = [
     id: '0199a1b5-0000-7000-8000-000000000043',
     accountTypeName: 'Saham',
     name: 'Bareksa',
+    isIncludeTotal: false,
+    sequenceOrder: 2n,
+  },
+  {
+    id: '0199a1b5-0000-7000-8000-000000000044',
+    accountTypeName: 'Saham',
+    parentAccountId: '0199a1b5-0000-7000-8000-000000000043',
+    name: 'TLKM',
+    isIncludeTotal: true,
+    sequenceOrder: 1n,
+  },
+  {
+    id: '0199a1b5-0000-7000-8000-000000000045',
+    accountTypeName: 'Saham',
+    parentAccountId: '0199a1b5-0000-7000-8000-000000000043',
+    name: 'BBCA',
     isIncludeTotal: true,
     sequenceOrder: 2n,
   },

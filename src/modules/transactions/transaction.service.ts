@@ -2,6 +2,8 @@ import type { PaginatedData } from '../../common/http/api-response.js';
 import { generateId } from '../../common/utils/id.js';
 import type { TransactionRepository } from './transaction.repository.js';
 import type {
+  BatchCreateResult,
+  BatchCreateTransactionsInput,
   CreateTransactionInput,
   ListTransactionsQuery,
   TransactionDto,
@@ -10,7 +12,7 @@ import type {
 import { toTransactionDto } from './transaction.types.js';
 
 export class TransactionService {
-  constructor(private readonly repository: TransactionRepository) {}
+  constructor(private readonly repository: TransactionRepository) { }
   async list(userId: string, query: ListTransactionsQuery): Promise<PaginatedData<TransactionDto>> {
     const { items, total } = await this.repository.list(userId, query);
     const offset = (query.page - 1) * query.limit;
@@ -28,6 +30,12 @@ export class TransactionService {
   }
   async create(userId: string, input: CreateTransactionInput): Promise<TransactionDto> {
     return toTransactionDto(await this.repository.create(userId, generateId(), input));
+  }
+  async createBatch(
+    userId: string,
+    input: BatchCreateTransactionsInput,
+  ): Promise<BatchCreateResult> {
+    return this.repository.createBatch(userId, input.items);
   }
   async update(userId: string, id: string, input: UpdateTransactionInput): Promise<TransactionDto> {
     return toTransactionDto(await this.repository.update(userId, id, input));
