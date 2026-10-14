@@ -1,5 +1,10 @@
 import cors from 'cors';
 import {
+  PrismaDashboardRepository,
+  type DashboardRepository,
+} from './modules/dashboard/dashboard.repository.js';
+import { createDashboardRouter } from './modules/dashboard/dashboard.route.js';
+import {
   PrismaNotificationRepository,
   type NotificationRepository,
 } from './modules/notifications/notification.repository.js';
@@ -97,6 +102,7 @@ import {
 import { createReferenceRouter } from './modules/references/reference.route.js';
 
 export type AppDependencies = {
+  dashboardRepository?: DashboardRepository;
   referenceRepository?: ReferenceRepository;
   userRepository: UserRepository;
   health: HealthDependencies;
@@ -123,6 +129,7 @@ export type AppDependencies = {
 function defaultDependencies(): AppDependencies {
   const synced = syncClient(prisma);
   return {
+    dashboardRepository: new PrismaDashboardRepository(prisma),
     referenceRepository: new PrismaReferenceRepository(prisma),
     apiKeyRepository: new PrismaApiKeyRepository(prisma),
     notificationRepository: new PrismaNotificationRepository(prisma),
@@ -194,6 +201,12 @@ export function createApp(dependencies: AppDependencies = defaultDependencies())
     config,
   );
   app.use('/api/v1/auth', createAuthRouter(authService, config));
+  if (dependencies.dashboardRepository) {
+    app.use(
+      '/api/v1/dashboard',
+      createDashboardRouter(dependencies.dashboardRepository, authService),
+    );
+  }
   if (dependencies.referenceRepository) {
     app.use('/api/v1', createReferenceRouter(dependencies.referenceRepository, authService));
   }

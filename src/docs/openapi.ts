@@ -40,8 +40,10 @@ import { registerSyncOpenApi } from '../modules/sync/sync.openapi.js';
 import { registerNotificationOpenApi } from '../modules/notifications/notification.openapi.js';
 import { registerApiKeyOpenApi } from '../modules/api-keys/api-key.openapi.js';
 import { registerReferenceOpenApi } from '../modules/references/reference.openapi.js';
+import { registerDashboardOpenApi } from '../modules/dashboard/dashboard.openapi.js';
 
 const registry = new OpenAPIRegistry();
+registerDashboardOpenApi(registry);
 registerReferenceOpenApi(registry);
 registerApiKeyOpenApi(registry);
 registerNotificationOpenApi(registry);
