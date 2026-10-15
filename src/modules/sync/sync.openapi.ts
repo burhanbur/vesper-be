@@ -59,7 +59,7 @@ export function registerSyncOpenApi(registry: OpenAPIRegistry): void {
     tags: ['Sync'],
     summary: 'Apply offline mutations independently',
     description:
-      'Owned device required. Up to 100 sequential independently atomic items. Shared account access does not grant metadata writes. CREATE uses client UUID and client_version=0; versioned updates/deletes require positive version. Transfer and investment writes excluded. Profiles use user_id as entity_id and serialized last-writer-wins. Invalid items return rejected; authorized conflicts include server_data. Infrastructure failures return 500; retry previously applied items safely.',
+      'Owned device required. Up to 100 sequential independently atomic items. Shared account access does not grant metadata writes. CREATE uses client UUID and client_version=0; versioned updates/deletes require positive version. Transfers support CREATE-only commands with client-assigned entity_id, from_transaction_id and to_transaction_id (three distinct UUIDs), client_version=0 and the regular transfer fields. A command atomically creates the transfer, two signed ledger rows and balance/sync changes. Identical persisted commands replay across owned devices without writes; changed payload/IDs or another actor return conflict without server_data. Current access to both accounts is required, including replay. Success server_data is the transfer DTO with both ledger IDs. Pull emits existing transactions/accounts, never a transfers entity; pages may split the committed pair. Direct transfer/investment-ledger mutations remain excluded. Investment CREATE commands use entity_type=investment_transactions, client_version=0, distinct client entity_id and payload.linked_transaction_id, required cash_account_id and BUY/SELL only. Other fields follow the investment contract. Matching persisted commands replay across devices without writes after current account/instrument access checks; changed or inactive commands conflict without server_data. Trade, cash ledger, balances, snapshots and events commit atomically. Pull includes investment_transactions and settlement transactions; authorization is evaluated separately for each account and pages may split these rows. An account balance pull is not a command acknowledgement. Requires the additive investment-sync migration before deployment. Profiles use user_id as entity_id and serialized last-writer-wins. Invalid items return rejected; authorized conflicts include server_data. Infrastructure failures return 500; retry previously applied items safely.',
     security: [{ bearerAuth: [] }],
     request: {
       body: {
@@ -76,6 +76,21 @@ export function registerSyncOpenApi(registry: OpenAPIRegistry): void {
                   operation: 'CREATE',
                   client_version: '0',
                   payload: { name: 'Makanan', type: 'EXPENSE' },
+                },
+                {
+                  entity_type: 'transfers',
+                  entity_id: '019a0000-0000-7000-8000-000000000003',
+                  operation: 'CREATE',
+                  client_version: '0',
+                  payload: {
+                    from_account_id: '019a0000-0000-7000-8000-000000000004',
+                    to_account_id: '019a0000-0000-7000-8000-000000000005',
+                    from_transaction_id: '019a0000-0000-7000-8000-000000000006',
+                    to_transaction_id: '019a0000-0000-7000-8000-000000000007',
+                    amount: '25000.00',
+                    transacted_at: '2026-10-15T10:00:00.000Z',
+                    description: null,
+                  },
                 },
               ],
             },

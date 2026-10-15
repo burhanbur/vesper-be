@@ -31,6 +31,7 @@ import type {
   SnapshotDto,
 } from './investment.schema.js';
 import { toInstrumentDto } from './investment.types.js';
+import { investmentSettlement } from './investment.settlement.js';
 
 export interface InvestmentRepository {
   listInstruments(query: ListInstrumentsQuery): Promise<{ items: Instrument[]; total: number }>;
@@ -72,17 +73,17 @@ async function requireInvestmentAccount(tx: Prisma.TransactionClient, userId: st
   return account;
 }
 export class PrismaInvestmentRepository implements InvestmentRepository {
-  constructor(private readonly client: PrismaClient) {}
+  constructor(private readonly client: PrismaClient) { }
   async listInstruments(query: ListInstrumentsQuery) {
     const where: Prisma.InstrumentWhereInput = {
       deletedAt: null,
       ...(query.search
         ? {
-            OR: [
-              { code: { contains: query.search, mode: 'insensitive' } },
-              { name: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
+          OR: [
+            { code: { contains: query.search, mode: 'insensitive' } },
+            { name: { contains: query.search, mode: 'insensitive' } },
+          ],
+        }
         : {}),
     };
     const direction = query.sort.startsWith('-') ? 'desc' : 'asc';
@@ -142,9 +143,21 @@ export class PrismaInvestmentRepository implements InvestmentRepository {
       { isolationLevel: 'ReadCommitted', timeout: 60000, maxWait: 10000 },
     );
   }
-  createTransaction(userId: string, input: CreateInvestmentInput) {
+  createOffline(userId: string, id: string, linkedTransactionId: string, input: CreateInvestmentInput) {
+    if (!input.cash_account_id || id === linkedTransactionId || input.type === 'DIVIDEND')
+      investmentError('INVESTMENT_COMMAND_INVALID', 'Command investasi BUY/SELL memerlukan akun kas dan ID berbeda.');
+    return this.createTransaction(userId, input, { id, linkedTransactionId });
+  }
+  createTransaction(
+    userId: string,
+    input: CreateInvestmentInput,
+    command?: { id: string; linkedTransactionId: string },
+  ) {
     return this.client.$transaction(
       async (tx) => {
+        // Serialize an ID independently of its payload to reject altered retries safely.
+        if (command)
+          await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'investment:command:' + command.id}::text, 0))::text`;
         const instrument = await lockInstrument(tx, input.instrument_id);
         const accounts = await lockLedgerAccounts(tx, userId, [
           input.account_id,
@@ -181,6 +194,26 @@ export class PrismaInvestmentRepository implements InvestmentRepository {
             );
         }
         const transactedAt = new Date(input.transacted_at);
+        if (command) {
+          const previous = await tx.investmentTransaction.findUnique({ where: { id: command.id } });
+          if (previous) {
+            const same = previous.createdBy === userId && !previous.deletedAt && previous.version === 1n &&
+              previous.accountId === input.account_id && previous.instrumentId === input.instrument_id &&
+              previous.cashAccountId === input.cash_account_id && previous.type === input.type &&
+              previous.linkedTransactionId === command.linkedTransactionId &&
+              previous.quantity.equals(input.quantity) && previous.pricePerUnit.equals(input.price_per_unit) &&
+              previous.fee.equals(input.fee) && previous.transactedAt.getTime() === transactedAt.getTime() &&
+              previous.description === (input.description ?? null);
+            const leg = same ? await tx.transaction.findUnique({ where: { id: command.linkedTransactionId } }) : null;
+            const settlement = investmentSettlement(input);
+            if (!same || !leg || leg.deletedAt || leg.version !== 1n || leg.createdBy !== userId ||
+              leg.accountId !== input.cash_account_id || leg.categoryId !== null || leg.transferId !== null ||
+              leg.type !== settlement.type || !leg.amount.equals(settlement.amount) ||
+              leg.transactedAt.getTime() !== transactedAt.getTime() || leg.description !== (input.description ?? null))
+              investmentError('INVESTMENT_COMMAND_CONFLICT', 'Command investasi berbeda atau tidak dapat diputar ulang.', 409);
+            return previous;
+          }
+        }
         const latest = await tx.investmentTransaction.findFirst({
           where: { accountId: account.id, instrumentId: instrument.id },
           orderBy: [{ transactedAt: 'desc' }, { id: 'desc' }],
@@ -202,22 +235,18 @@ export class PrismaInvestmentRepository implements InvestmentRepository {
             : null;
         const gross = quantity.mul(price);
         const net = input.type === 'BUY' ? gross.plus(fee) : gross.minus(fee);
-        const amount = bounded(net, 2);
+        bounded(net, 2);
         let linkedTransactionId: string | null = null;
         if (input.cash_account_id) {
-          if (new InvestmentDecimal(amount).lte(0))
-            investmentError(
-              'INVESTMENT_NET_AMOUNT_INVALID',
-              'Nominal cash setelah fee dan pembulatan harus positif.',
-            );
-          linkedTransactionId = generateId();
+          const settlement = investmentSettlement(input);
+          linkedTransactionId = command?.linkedTransactionId ?? generateId();
           await tx.transaction.create({
             data: {
               id: linkedTransactionId,
               accountId: input.cash_account_id,
               categoryId: null,
-              type: input.type === 'BUY' ? 'EXPENSE' : 'INCOME',
-              amount,
+              type: settlement.type,
+              amount: settlement.amount,
               transactedAt,
               description: input.description ?? null,
               version: 1n,
@@ -228,7 +257,7 @@ export class PrismaInvestmentRepository implements InvestmentRepository {
         }
         const record = await tx.investmentTransaction.create({
           data: {
-            id: generateId(),
+            id: command?.id ?? generateId(),
             instrumentId: instrument.id,
             accountId: account.id,
             cashAccountId: input.cash_account_id,
@@ -322,9 +351,9 @@ export class PrismaInvestmentRepository implements InvestmentRepository {
           const price = stored
             ? null
             : await tx.instrumentPrice.findFirst({
-                where: { instrumentId: instrument.id, priceDate: { lte: snapshotDate } },
-                orderBy: { priceDate: 'desc' },
-              });
+              where: { instrumentId: instrument.id, priceDate: { lte: snapshotDate } },
+              orderBy: { priceDate: 'desc' },
+            });
           const values = stored ?? (price ? valuation(position, price.closePrice) : null);
           items.push({
             account_id: accountId,

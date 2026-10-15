@@ -1,0 +1,21 @@
+# Standalone: never merge with the development Compose file.
+services:
+  postgres-integration:
+    image: postgres:17-alpine
+    # No service discovery is needed; avoid allocating a subnet on every retained run.
+    network_mode: bridge
+    environment:
+      POSTGRES_USER: vesper_integration
+      POSTGRES_PASSWORD: integration-only-not-a-secret
+      POSTGRES_DB: vesper_integration_test
+    ports:
+      - '127.0.0.1::5432'
+    tmpfs:
+      - /var/lib/postgresql/data
+    labels:
+      vesper.integration: 'ephemeral-postgres'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U vesper_integration -d vesper_integration_test']
+      interval: 1s
+      timeout: 3s
+      retries: 60

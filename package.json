@@ -27,6 +27,7 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:coverage": "vitest run --coverage",
+    "test:integration:postgres": "tsx scripts/test-postgres-integration.ts",
     "audit:production": "npm audit --omit=dev --audit-level=high",
     "db:migrate": "prisma migrate dev",
     "db:deploy": "prisma migrate deploy",

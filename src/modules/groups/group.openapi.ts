@@ -1,5 +1,10 @@
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import {
+  CollaborationQuerySchema,
+  CollaborationDtoSchema,
+  MembershipActionSchema,
+} from './collaboration.route.js';
+import {
   createSuccessResponseSchema,
   ErrorResponseSchema,
 } from '../../common/contracts/api-response.schema.js';
@@ -21,6 +26,8 @@ import {
   GroupMemberDtoSchema,
   GroupCategoryDtoSchema,
   GroupReportDtoSchema,
+  GroupSharedAccountDtoSchema,
+  GroupCategoryMappingDtoSchema,
 } from './group.schema.js';
 
 export function registerGroupOpenApi(registry: OpenAPIRegistry): void {
@@ -83,6 +90,28 @@ export function registerGroupOpenApi(registry: OpenAPIRegistry): void {
   }[] = [
     {
       method: 'get',
+      path: '/{id}/collaboration',
+      operationId: 'readGroupCollaboration',
+      summary: 'Read shared cash, monthly contributions and activity',
+      description:
+        'Active membership required; RepeatableRead snapshot. Cash balances grouped by currency, CASH account types only. Contributions mean mapped INCOME/EXPENSE, not debts or deposits. Feed and contributions use independent bounded offset pages with page/limit; fewer than limit means exhaustion for that list. Only live same-owner account/type/category, same-group sharing and mapping and active owner membership qualify. Excludes transfers and investment-linked rows. No private account/category labels, notes, emails, phones or invitation codes. All money is decimal text. No-store; no additional RBAC permission.',
+      query: CollaborationQuerySchema,
+      schema: CollaborationDtoSchema,
+      example: { period: '2026-10', page: 1, limit: 20, balances: [], contributions: [], feed: [] },
+    },
+    {
+      method: 'post',
+      path: '/{id}/membership',
+      operationId: 'manageGroupMembership',
+      summary: 'Leave, remove a member or transfer ownership',
+      description:
+        'OWNER may remove a MEMBER or transfer ownership to an active MEMBER; MEMBER may remove only self. OWNER cannot leave or be removed until ownership is transferred. Atomic owner-before-group locks. Removal deletes membership grant, own sharing and mappings, never personal history. Rejoin requires invitation and does not restore opt-ins. Sync grant adapter publishes revocation tombstones. No additional RBAC permission.',
+      body: MembershipActionSchema,
+      schema: z.null(),
+      example: null,
+    },
+    {
+      method: 'get',
       path: '',
       operationId: 'listJoinedGroups',
       summary: 'List joined groups',
@@ -135,6 +164,32 @@ export function registerGroupOpenApi(registry: OpenAPIRegistry): void {
           created_at: timestamp,
         },
       ],
+      paginated: true,
+    },
+    {
+      method: 'get',
+      path: '/{id}/accounts',
+      operationId: 'listOwnGroupAccounts',
+      summary: 'List own shared accounts',
+      description:
+        'Active group membership required; OWNER and MEMBER see only their own sharing rows in this group, with live own accounts and live own account types. ID is the sharing row ID. No balances or other member data. Ascending sharing created_at then ID; membership, rows and count share a RepeatableRead snapshot. No additional RBAC permission required.',
+      params: GroupParamsSchema,
+      query: GroupPageSchema,
+      schema: z.array(GroupSharedAccountDtoSchema),
+      example: [{ id, group_id: id, account_id: id, name: 'Wallet' }],
+      paginated: true,
+    },
+    {
+      method: 'get',
+      path: '/{id}/category-mappings',
+      operationId: 'listOwnGroupCategoryMappings',
+      summary: 'List own personal category mappings',
+      description:
+        'Active group membership required; OWNER and MEMBER see only their own live personal category mappings in this group with a same-group category and matching INCOME/EXPENSE type. ID is the mapping row ID. Independent of account sharing. Ascending mapping created_at then ID; membership, rows and count share a RepeatableRead snapshot. No additional RBAC permission required.',
+      params: GroupParamsSchema,
+      query: GroupPageSchema,
+      schema: z.array(GroupCategoryMappingDtoSchema),
+      example: [{ id, group_id: id, group_category_id: id, user_category_id: id }],
       paginated: true,
     },
     ...(['post', 'delete'] as const).map((method) => ({

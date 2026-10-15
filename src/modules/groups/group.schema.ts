@@ -59,6 +59,20 @@ export const GroupCategoryDtoSchema = z.strictObject({
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
 });
+export const GroupSharedAccountDtoSchema = z.strictObject({
+  id: z.uuid().describe('Sharing row ID, not the account ID.'),
+  group_id: z.uuid(),
+  account_id: z.uuid(),
+  name: z.string(),
+});
+export const GroupCategoryMappingDtoSchema = z.strictObject({
+  id: z.uuid().describe('Mapping row ID, not a category ID.'),
+  group_id: z.uuid(),
+  group_category_id: z.uuid(),
+  user_category_id: z.uuid(),
+});
+export type GroupSharedAccountDto = z.infer<typeof GroupSharedAccountDtoSchema>;
+export type GroupCategoryMappingDto = z.infer<typeof GroupCategoryMappingDtoSchema>;
 export const GroupReportDtoSchema = z.strictObject({
   period: z.string(),
   categories: z.array(

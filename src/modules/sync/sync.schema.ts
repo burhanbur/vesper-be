@@ -10,6 +10,22 @@ import {
   UpdateTransactionSchema,
 } from '../transactions/transaction.schema.js';
 import { PatchProfileSchema } from '../profiles/profile.schema.js';
+import { CreateTransferSchema } from '../transfers/transfer.schema.js';
+import { CreateInvestmentSchema } from '../investments/investment.schema.js';
+
+export const OfflineInvestmentPayloadSchema = CreateInvestmentSchema.extend({
+  type: z.enum(['BUY', 'SELL']),
+  cash_account_id: z.uuid(),
+  linked_transaction_id: z.uuid(),
+});
+
+// Transfer commands are push-only; pulls expose the paired transaction rows.
+export const OfflineTransferPayloadSchema = CreateTransferSchema.safeExtend({
+  from_transaction_id: z.uuid(),
+  to_transaction_id: z.uuid(),
+}).refine((value) => value.from_transaction_id !== value.to_transaction_id, {
+  message: 'ID ledger transfer harus berbeda.',
+});
 
 export const SyncVersionSchema = z
   .string()
@@ -24,6 +40,7 @@ export const SyncEntitySchema = z.enum([
   'categories',
   'transactions',
   'user_profiles',
+  'investment_transactions',
 ]);
 export const PullQuerySchema = z.strictObject({
   device_id: z.uuid(),
@@ -33,11 +50,35 @@ export const PullQuerySchema = z.strictObject({
 const base = { entity_id: z.uuid(), client_version: SyncVersionSchema };
 const deletions = z.strictObject({
   ...base,
-  entity_type: SyncEntitySchema,
+  entity_type: SyncEntitySchema.exclude(['investment_transactions']),
   operation: z.literal('DELETE'),
   payload: z.null(),
 });
 export const PushItemSchema = z.union([
+  z
+    .strictObject({
+      entity_id: z.uuid(),
+      client_version: z.literal('0'),
+      entity_type: z.literal('investment_transactions'),
+      operation: z.literal('CREATE'),
+      payload: OfflineInvestmentPayloadSchema,
+    })
+    .refine((value) => value.entity_id !== value.payload.linked_transaction_id, {
+      message: 'ID trade dan ledger harus berbeda.',
+    }),
+  z
+    .strictObject({
+      entity_id: z.uuid(),
+      client_version: z.literal('0'),
+      entity_type: z.literal('transfers'),
+      operation: z.literal('CREATE'),
+      payload: OfflineTransferPayloadSchema,
+    })
+    .refine(
+      (value) =>
+        value.entity_id !== value.payload.from_transaction_id &&
+        value.entity_id !== value.payload.to_transaction_id,
+    ),
   z.strictObject({
     ...base,
     entity_type: z.literal('account_types'),

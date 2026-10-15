@@ -1,4 +1,6 @@
 import cors from 'cors';
+import { CollaborationRepository } from './modules/groups/collaboration.repository.js';
+import { createCollaborationRouter } from './modules/groups/collaboration.route.js';
 import {
   PrismaDashboardRepository,
   type DashboardRepository,
@@ -121,6 +123,7 @@ export type AppDependencies = {
   budgetRepository?: BudgetRepository;
   investmentRepository?: InvestmentRepository;
   groupRepository?: GroupRepository;
+  collaborationRepository?: CollaborationRepository;
   syncRepository?: SyncRepository;
   notificationRepository?: NotificationRepository;
   apiKeyRepository?: ApiKeyRepository;
@@ -150,6 +153,7 @@ function defaultDependencies(): AppDependencies {
     budgetRepository: new PrismaBudgetRepository(prisma),
     investmentRepository: new PrismaInvestmentRepository(syncClient(prisma, null, false)),
     groupRepository: new PrismaGroupRepository(synced),
+    collaborationRepository: new CollaborationRepository(synced),
     health: {
       checkDatabase: checkDatabaseConnection,
       checkRedis: checkRedisConnection,
@@ -201,6 +205,12 @@ export function createApp(dependencies: AppDependencies = defaultDependencies())
     config,
   );
   app.use('/api/v1/auth', createAuthRouter(authService, config));
+  if (dependencies.collaborationRepository) {
+    app.use(
+      '/api/v1/groups',
+      createCollaborationRouter(dependencies.collaborationRepository, authService),
+    );
+  }
   if (dependencies.dashboardRepository) {
     app.use(
       '/api/v1/dashboard',

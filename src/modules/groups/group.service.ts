@@ -18,7 +18,7 @@ function paginate<T>(result: { items: T[]; total: number }, page: GroupPage) {
   };
 }
 export class GroupService {
-  constructor(private readonly repository: GroupRepository) {}
+  constructor(private readonly repository: GroupRepository) { }
   async create(userId: string, name: string) {
     for (let attempt = 0; attempt < 5; attempt++) {
       // 48 bits cryptographic entropy, uppercase short alphanumeric, no modulo bias.
@@ -43,6 +43,12 @@ export class GroupService {
   }
   async members(userId: string, id: string, page: GroupPage) {
     return paginate(await this.repository.members(userId, id, page), page);
+  }
+  async accounts(userId: string, id: string, page: GroupPage) {
+    return paginate(await this.repository.accounts(userId, id, page), page);
+  }
+  async categoryMappings(userId: string, id: string, page: GroupPage) {
+    return paginate(await this.repository.categoryMappings(userId, id, page), page);
   }
   share(userId: string, id: string, accountId: string, remove: boolean) {
     return this.repository.share(userId, id, accountId, remove);

@@ -27,6 +27,10 @@ import {
   UpdateTransactionSchema,
 } from '../transactions/transaction.schema.js';
 import { PatchProfileSchema } from '../profiles/profile.schema.js';
+import { PrismaTransferRepository } from '../transfers/transfer.repository.js';
+import { toTransferDto } from '../transfers/transfer.types.js';
+import { PrismaInvestmentRepository } from '../investments/investment.repository.js';
+import { toInvestmentDto } from '../investments/investment.types.js';
 import type { PullQuery, PushItem } from './sync.schema.js';
 
 function fail(statusCode: number, message: string): never {
@@ -73,12 +77,21 @@ export class SyncRepository {
       });
       return record ? toAccountDto(record) : null;
     }
+    if (entity === 'investment_transactions') {
+      const record = await tx.investmentTransaction.findFirst({
+        where: {
+          id,
+          account: accessibleAccount(userId),
+          ...(tombstone ? {} : { deletedAt: null }),
+        },
+      });
+      return record ? toInvestmentDto(record) : null;
+    }
     if (entity === 'transactions') {
       const record = await tx.transaction.findFirst({
         where: {
           id,
           account: accessibleAccount(userId),
-          investmentTransaction: null,
           ...(tombstone ? {} : { deletedAt: null }),
         },
       });
@@ -123,9 +136,14 @@ export class SyncRepository {
       for (const event of page) {
         const entity = event.entityType;
         if (
-          !['account_types', 'accounts', 'categories', 'transactions', 'user_profiles'].includes(
-            entity,
-          )
+          ![
+            'account_types',
+            'accounts',
+            'categories',
+            'transactions',
+            'user_profiles',
+            'investment_transactions',
+          ].includes(entity)
         )
           throw new Error('Invalid persisted sync entity');
         // Persisted entity types are constrained by the migration and publication helper.
@@ -162,6 +180,24 @@ export class SyncRepository {
   async apply(userId: string, deviceId: string, item: PushItem) {
     return syncClient(this.client, deviceId).$transaction(async (tx) => {
       await this.device(tx, userId, deviceId);
+      if (item.entity_type === 'investment_transactions') {
+        const { linked_transaction_id, ...input } = item.payload;
+        const trade = await new PrismaInvestmentRepository(transactionClient(tx)).createOffline(
+          userId,
+          item.entity_id,
+          linked_transaction_id,
+          input,
+        );
+        return { status: 'applied' as const, server_data: toInvestmentDto(trade) };
+      }
+      if (item.entity_type === 'transfers') {
+        const transfer = await new PrismaTransferRepository(transactionClient(tx)).createOffline(
+          userId,
+          item.entity_id,
+          item.payload,
+        );
+        return { status: 'applied' as const, server_data: toTransferDto(transfer) };
+      }
       const version = item.client_version;
       const before = await this.data(tx, userId, item.entity_type, item.entity_id, true);
       if (item.entity_type === 'user_profiles' && item.entity_id !== userId)

@@ -15,6 +15,7 @@ export const syncEntities = {
   account: 'accounts',
   category: 'categories',
   transaction: 'transactions',
+  investmentTransaction: 'investment_transactions',
   userProfile: 'user_profiles',
 } as const;
 export type SyncEntity = (typeof syncEntities)[keyof typeof syncEntities];
@@ -78,7 +79,7 @@ async function recipients(
   record: Row,
 ): Promise<string[]> {
   if (entity === 'accounts') return record.id ? accountRecipients(tx, record.id) : [];
-  if (entity === 'transactions')
+  if (entity === 'transactions' || entity === 'investment_transactions')
     return record.accountId ? accountRecipients(tx, record.accountId) : [];
   if (!record.userId) return [];
   if (entity === 'user_profiles') return [record.userId];
@@ -155,10 +156,21 @@ export function syncClient(
                   return fn.bind(model) as unknown;
                 return async (args: unknown) => {
                   if (!publishChanges) return Reflect.apply(fn, model, [args]) as unknown;
-                  if (grant) await rememberGrantAccounts(args);
-                  const before: Row[] = [];
                   const where: unknown =
                     args && typeof args === 'object' ? Reflect.get(args, 'where') : undefined;
+                  if (grant) {
+                    // ID-only deletions/updates carry no account/group IDs in their input.
+                    // Resolve the old grant before mutation so recipients receive tombstones.
+                    if (where) {
+                      const finder: unknown = Reflect.get(model, 'findMany');
+                      if (typeof finder === 'function') {
+                        const previous: unknown = await Reflect.apply(finder, model, [{ where }]);
+                        await rememberGrantAccounts(previous);
+                      }
+                    }
+                    await rememberGrantAccounts(args);
+                  }
+                  const before: Row[] = [];
                   if (entity && where) {
                     const finder: unknown = Reflect.get(model, 'findMany');
                     if (typeof finder === 'function') {
@@ -235,15 +247,6 @@ export function syncClient(
         });
         const result = await operation(observed);
         for (const change of changes.values()) {
-          // Investment-generated cash rows remain online-only even when touched by other paths.
-          if (
-            change.entity === 'transactions' &&
-            (await tx.investmentTransaction.findUnique({
-              where: { linkedTransactionId: change.id },
-              select: { id: true },
-            }))
-          )
-            continue;
           const record =
             change.entity === 'accounts'
               ? await tx.account.findUnique({ where: { id: change.id } })
@@ -273,8 +276,21 @@ export function syncClient(
             for (const category of categories)
               await publish(tx, 'categories', category.id, [...change.users], 'UPDATE', deviceId);
             if (record.deletedAt) {
+              const trades = await tx.investmentTransaction.findMany({
+                where: { accountId: record.id },
+                select: { id: true },
+              });
+              for (const trade of trades)
+                await publish(
+                  tx,
+                  'investment_transactions',
+                  trade.id,
+                  [...change.users],
+                  'DELETE',
+                  deviceId,
+                );
               const transactions = await tx.transaction.findMany({
-                where: { accountId: record.id, investmentTransaction: null },
+                where: { accountId: record.id },
                 select: { id: true },
               });
               for (const transaction of transactions)
@@ -325,8 +341,21 @@ export function syncClient(
                   after.has(user) ? 'CREATE' : 'DELETE',
                   deviceId,
                 );
+              const trades = await tx.investmentTransaction.findMany({
+                where: { accountId: id },
+                select: { id: true },
+              });
+              for (const trade of trades)
+                await publish(
+                  tx,
+                  'investment_transactions',
+                  trade.id,
+                  [user],
+                  after.has(user) ? 'CREATE' : 'DELETE',
+                  deviceId,
+                );
               const transactions = await tx.transaction.findMany({
-                where: { accountId: id, investmentTransaction: null },
+                where: { accountId: id },
                 select: { id: true },
               });
               for (const transaction of transactions)

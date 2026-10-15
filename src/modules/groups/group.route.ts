@@ -53,6 +53,16 @@ export function createGroupRouter(repository: GroupRepository, authService: Auth
     validateRequest({ params: GroupParamsSchema, query: GroupPageSchema }),
     controller.members,
   );
+  router.get(
+    '/:id/accounts',
+    validateRequest({ params: GroupParamsSchema, query: GroupPageSchema }),
+    controller.accounts,
+  );
+  router.get(
+    '/:id/category-mappings',
+    validateRequest({ params: GroupParamsSchema, query: GroupPageSchema }),
+    controller.categoryMappings,
+  );
   router.post(
     '/:id/accounts',
     validateRequest({ params: GroupParamsSchema, body: GroupAccountSchema }),
