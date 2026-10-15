@@ -158,11 +158,16 @@ export function syncClient(
                   if (!publishChanges) return Reflect.apply(fn, model, [args]) as unknown;
                   const where: unknown =
                     args && typeof args === 'object' ? Reflect.get(args, 'where') : undefined;
+                  // Compound unique selectors are valid for findUnique, not
+                  // findMany. Preserve them for single-record mutations.
+                  const lookup = ['update', 'upsert', 'delete'].includes(method)
+                    ? 'findUnique'
+                    : 'findMany';
                   if (grant) {
                     // ID-only deletions/updates carry no account/group IDs in their input.
                     // Resolve the old grant before mutation so recipients receive tombstones.
                     if (where) {
-                      const finder: unknown = Reflect.get(model, 'findMany');
+                      const finder: unknown = Reflect.get(model, lookup);
                       if (typeof finder === 'function') {
                         const previous: unknown = await Reflect.apply(finder, model, [{ where }]);
                         await rememberGrantAccounts(previous);
@@ -172,11 +177,11 @@ export function syncClient(
                   }
                   const before: Row[] = [];
                   if (entity && where) {
-                    const finder: unknown = Reflect.get(model, 'findMany');
+                    const finder: unknown = Reflect.get(model, lookup);
                     if (typeof finder === 'function') {
                       const found: unknown = await Reflect.apply(finder, model, [{ where }]);
-                      if (Array.isArray(found))
-                        for (const value of found) {
+                      if (found)
+                        for (const value of Array.isArray(found) ? found : [found]) {
                           const record = row(value);
                           if (record) before.push(record);
                         }
