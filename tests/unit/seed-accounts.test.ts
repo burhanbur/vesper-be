@@ -50,7 +50,7 @@ describe('seed account definitions', () => {
     expect(children.map((account) => account.name)).toEqual([
       'Reksadana STAR Stable Income Fund',
       'Reksadana Syailendra Stable Income Fund',
-      'Succorinvest Stable Fund',
+      'Reksadana Succorinvest Stable Fund',
     ]);
     expect(children.map((account) => account.sequenceOrder)).toEqual(['1n', '2n', '3n']);
     expect(

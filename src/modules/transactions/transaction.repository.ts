@@ -46,7 +46,7 @@ function invalid(code: string, message: string): never {
 const ownedAccount = accessibleAccount;
 
 export class PrismaTransactionRepository implements TransactionRepository {
-  constructor(private readonly client: PrismaClient) { }
+  constructor(private readonly client: PrismaClient) {}
 
   async list(userId: string, query: ListTransactionsQuery) {
     const dates = query.date_range?.split(',');

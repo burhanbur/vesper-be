@@ -14,7 +14,7 @@ export interface TransferRepository {
   create(userId: string, id: string, input: CreateTransferInput): Promise<TransferRecord>;
 }
 export class PrismaTransferRepository implements TransferRepository {
-  constructor(private readonly client: PrismaClient) { }
+  constructor(private readonly client: PrismaClient) {}
 
   create(userId: string, id: string, input: CreateTransferInput): Promise<TransferRecord> {
     return this.persist(userId, id, input);
@@ -73,26 +73,42 @@ export class PrismaTransferRepository implements TransferRepository {
           if (existing) {
             // Never disclose a colliding command belonging to another actor. Replay
             // is durable across devices and does not rely on sync event retention.
-            const fromLeg = existing.transactions.find((row) => row.id === ledgerIds.from_transaction_id);
-            const toLeg = existing.transactions.find((row) => row.id === ledgerIds.to_transaction_id);
-            const matches = existing.createdBy === userId &&
-              existing.deletedAt === null && existing.version === 1n &&
+            const fromLeg = existing.transactions.find(
+              (row) => row.id === ledgerIds.from_transaction_id,
+            );
+            const toLeg = existing.transactions.find(
+              (row) => row.id === ledgerIds.to_transaction_id,
+            );
+            const matches =
+              existing.createdBy === userId &&
+              existing.deletedAt === null &&
+              existing.version === 1n &&
               existing.fromAccountId === input.from_account_id &&
-              existing.toAccountId === input.to_account_id && existing.amount.equals(amount) &&
+              existing.toAccountId === input.to_account_id &&
+              existing.amount.equals(amount) &&
               existing.transactedAt.getTime() === new Date(input.transacted_at).getTime() &&
-              existing.description === input.description && existing.transactions.length === 2 &&
-              fromLeg?.accountId === from.id && toLeg?.accountId === to.id &&
+              existing.description === input.description &&
+              existing.transactions.length === 2 &&
+              fromLeg?.accountId === from.id &&
+              toLeg?.accountId === to.id &&
               fromLeg.id !== toLeg.id &&
-              [fromLeg, toLeg].every((row) => row.type === 'TRANSFER' &&
-                row.categoryId === null && row.deletedAt === null && row.transferId === id &&
-                row.transactedAt.getTime() === existing.transactedAt.getTime() &&
-                row.description === existing.description && row.createdBy === userId &&
-                row.amount.equals(row.id === fromLeg.id ? amount.negated() : amount));
-            if (!matches) throw new AppError({
-              statusCode: 409,
-              code: 'TRANSFER_COMMAND_CONFLICT',
-              message: 'ID perintah transfer tidak tersedia atau data berbeda.',
-            });
+              [fromLeg, toLeg].every(
+                (row) =>
+                  row.type === 'TRANSFER' &&
+                  row.categoryId === null &&
+                  row.deletedAt === null &&
+                  row.transferId === id &&
+                  row.transactedAt.getTime() === existing.transactedAt.getTime() &&
+                  row.description === existing.description &&
+                  row.createdBy === userId &&
+                  row.amount.equals(row.id === fromLeg.id ? amount.negated() : amount),
+              );
+            if (!matches)
+              throw new AppError({
+                statusCode: 409,
+                code: 'TRANSFER_COMMAND_CONFLICT',
+                message: 'ID perintah transfer tidak tersedia atau data berbeda.',
+              });
             return { ...existing, fromTransactionId: fromLeg.id, toTransactionId: toLeg.id };
           }
         }

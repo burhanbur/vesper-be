@@ -116,15 +116,15 @@ export function registerTransactionOpenApi(registry: OpenAPIRegistry): void {
           data: list ? [example] : example,
           ...(list
             ? {
-              pagination: {
-                total: 1,
-                per_page: 20,
-                current_page: 1,
-                last_page: 1,
-                from: 1,
-                to: 1,
-              },
-            }
+                pagination: {
+                  total: 1,
+                  per_page: 20,
+                  current_page: 1,
+                  last_page: 1,
+                  from: 1,
+                  to: 1,
+                },
+              }
             : {}),
         },
       },

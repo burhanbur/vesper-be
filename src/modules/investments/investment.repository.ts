@@ -73,17 +73,17 @@ async function requireInvestmentAccount(tx: Prisma.TransactionClient, userId: st
   return account;
 }
 export class PrismaInvestmentRepository implements InvestmentRepository {
-  constructor(private readonly client: PrismaClient) { }
+  constructor(private readonly client: PrismaClient) {}
   async listInstruments(query: ListInstrumentsQuery) {
     const where: Prisma.InstrumentWhereInput = {
       deletedAt: null,
       ...(query.search
         ? {
-          OR: [
-            { code: { contains: query.search, mode: 'insensitive' } },
-            { name: { contains: query.search, mode: 'insensitive' } },
-          ],
-        }
+            OR: [
+              { code: { contains: query.search, mode: 'insensitive' } },
+              { name: { contains: query.search, mode: 'insensitive' } },
+            ],
+          }
         : {}),
     };
     const direction = query.sort.startsWith('-') ? 'desc' : 'asc';
@@ -143,9 +143,17 @@ export class PrismaInvestmentRepository implements InvestmentRepository {
       { isolationLevel: 'ReadCommitted', timeout: 60000, maxWait: 10000 },
     );
   }
-  createOffline(userId: string, id: string, linkedTransactionId: string, input: CreateInvestmentInput) {
+  createOffline(
+    userId: string,
+    id: string,
+    linkedTransactionId: string,
+    input: CreateInvestmentInput,
+  ) {
     if (!input.cash_account_id || id === linkedTransactionId || input.type === 'DIVIDEND')
-      investmentError('INVESTMENT_COMMAND_INVALID', 'Command investasi BUY/SELL memerlukan akun kas dan ID berbeda.');
+      investmentError(
+        'INVESTMENT_COMMAND_INVALID',
+        'Command investasi BUY/SELL memerlukan akun kas dan ID berbeda.',
+      );
     return this.createTransaction(userId, input, { id, linkedTransactionId });
   }
   createTransaction(
@@ -197,20 +205,43 @@ export class PrismaInvestmentRepository implements InvestmentRepository {
         if (command) {
           const previous = await tx.investmentTransaction.findUnique({ where: { id: command.id } });
           if (previous) {
-            const same = previous.createdBy === userId && !previous.deletedAt && previous.version === 1n &&
-              previous.accountId === input.account_id && previous.instrumentId === input.instrument_id &&
-              previous.cashAccountId === input.cash_account_id && previous.type === input.type &&
+            const same =
+              previous.createdBy === userId &&
+              !previous.deletedAt &&
+              previous.version === 1n &&
+              previous.accountId === input.account_id &&
+              previous.instrumentId === input.instrument_id &&
+              previous.cashAccountId === input.cash_account_id &&
+              previous.type === input.type &&
               previous.linkedTransactionId === command.linkedTransactionId &&
-              previous.quantity.equals(input.quantity) && previous.pricePerUnit.equals(input.price_per_unit) &&
-              previous.fee.equals(input.fee) && previous.transactedAt.getTime() === transactedAt.getTime() &&
+              previous.quantity.equals(input.quantity) &&
+              previous.pricePerUnit.equals(input.price_per_unit) &&
+              previous.fee.equals(input.fee) &&
+              previous.transactedAt.getTime() === transactedAt.getTime() &&
               previous.description === (input.description ?? null);
-            const leg = same ? await tx.transaction.findUnique({ where: { id: command.linkedTransactionId } }) : null;
+            const leg = same
+              ? await tx.transaction.findUnique({ where: { id: command.linkedTransactionId } })
+              : null;
             const settlement = investmentSettlement(input);
-            if (!same || !leg || leg.deletedAt || leg.version !== 1n || leg.createdBy !== userId ||
-              leg.accountId !== input.cash_account_id || leg.categoryId !== null || leg.transferId !== null ||
-              leg.type !== settlement.type || !leg.amount.equals(settlement.amount) ||
-              leg.transactedAt.getTime() !== transactedAt.getTime() || leg.description !== (input.description ?? null))
-              investmentError('INVESTMENT_COMMAND_CONFLICT', 'Command investasi berbeda atau tidak dapat diputar ulang.', 409);
+            if (
+              !same ||
+              !leg ||
+              leg.deletedAt ||
+              leg.version !== 1n ||
+              leg.createdBy !== userId ||
+              leg.accountId !== input.cash_account_id ||
+              leg.categoryId !== null ||
+              leg.transferId !== null ||
+              leg.type !== settlement.type ||
+              !leg.amount.equals(settlement.amount) ||
+              leg.transactedAt.getTime() !== transactedAt.getTime() ||
+              leg.description !== (input.description ?? null)
+            )
+              investmentError(
+                'INVESTMENT_COMMAND_CONFLICT',
+                'Command investasi berbeda atau tidak dapat diputar ulang.',
+                409,
+              );
             return previous;
           }
         }
@@ -351,9 +382,9 @@ export class PrismaInvestmentRepository implements InvestmentRepository {
           const price = stored
             ? null
             : await tx.instrumentPrice.findFirst({
-              where: { instrumentId: instrument.id, priceDate: { lte: snapshotDate } },
-              orderBy: { priceDate: 'desc' },
-            });
+                where: { instrumentId: instrument.id, priceDate: { lte: snapshotDate } },
+                orderBy: { priceDate: 'desc' },
+              });
           const values = stored ?? (price ? valuation(position, price.closePrice) : null);
           items.push({
             account_id: accountId,

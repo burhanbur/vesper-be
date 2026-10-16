@@ -29,8 +29,16 @@ export interface GroupRepository {
     id: string,
     page: GroupPage,
   ): Promise<{ items: GroupMemberDto[]; total: number }>;
-  accounts(userId: string, id: string, page: GroupPage): Promise<{ items: GroupSharedAccountDto[]; total: number }>;
-  categoryMappings(userId: string, id: string, page: GroupPage): Promise<{ items: GroupCategoryMappingDto[]; total: number }>;
+  accounts(
+    userId: string,
+    id: string,
+    page: GroupPage,
+  ): Promise<{ items: GroupSharedAccountDto[]; total: number }>;
+  categoryMappings(
+    userId: string,
+    id: string,
+    page: GroupPage,
+  ): Promise<{ items: GroupCategoryMappingDto[]; total: number }>;
   share(userId: string, id: string, accountId: string, remove: boolean): Promise<void>;
   categories(
     userId: string,
@@ -113,7 +121,7 @@ async function lockGroup(tx: Prisma.TransactionClient, id: string): Promise<void
   await tx.$queryRaw`SELECT id FROM groups WHERE id = ${id}::uuid FOR UPDATE`;
 }
 export class PrismaGroupRepository implements GroupRepository {
-  constructor(private readonly client: PrismaClient) { }
+  constructor(private readonly client: PrismaClient) {}
   create(userId: string, name: string, code: string) {
     return this.client.$transaction(async (tx) => {
       const group = await tx.group.create({
@@ -213,14 +221,27 @@ export class PrismaGroupRepository implements GroupRepository {
         const [rows, total] = await Promise.all([
           tx.groupAccount.findMany({
             where,
-            select: { id: true, groupId: true, accountId: true, account: { select: { name: true } } },
+            select: {
+              id: true,
+              groupId: true,
+              accountId: true,
+              account: { select: { name: true } },
+            },
             orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
             skip: (page.page - 1) * page.limit,
             take: page.limit,
           }),
           tx.groupAccount.count({ where }),
         ]);
-        return { total, items: rows.map((row) => ({ id: row.id, group_id: row.groupId, account_id: row.accountId, name: row.account.name })) };
+        return {
+          total,
+          items: rows.map((row) => ({
+            id: row.id,
+            group_id: row.groupId,
+            account_id: row.accountId,
+            name: row.account.name,
+          })),
+        };
       },
       { isolationLevel: 'RepeatableRead' },
     );
@@ -248,7 +269,15 @@ export class PrismaGroupRepository implements GroupRepository {
           }),
           tx.mappingGroupCategory.count({ where }),
         ]);
-        return { total, items: rows.map((row) => ({ id: row.id, group_id: row.groupId, group_category_id: row.groupCategoryId, user_category_id: row.userCategoryId })) };
+        return {
+          total,
+          items: rows.map((row) => ({
+            id: row.id,
+            group_id: row.groupId,
+            group_category_id: row.groupCategoryId,
+            user_category_id: row.userCategoryId,
+          })),
+        };
       },
       { isolationLevel: 'RepeatableRead' },
     );

@@ -32,6 +32,7 @@ import { toTransferDto } from '../transfers/transfer.types.js';
 import { PrismaInvestmentRepository } from '../investments/investment.repository.js';
 import { toInvestmentDto } from '../investments/investment.types.js';
 import type { PullQuery, PushItem } from './sync.schema.js';
+import { InvestmentRecoveryRepository } from './investment-recovery.repository.js';
 
 function fail(statusCode: number, message: string): never {
   throw new AppError({ statusCode, code: 'SYNC_MUTATION_REJECTED', message });
@@ -51,8 +52,10 @@ function transactionClient(tx: Prisma.TransactionClient): PrismaClient {
   }) as PrismaClient;
 }
 
-export class SyncRepository {
-  constructor(private readonly client: PrismaClient) {}
+export class SyncRepository extends InvestmentRecoveryRepository {
+  constructor(private readonly client: PrismaClient) {
+    super(client);
+  }
 
   private async device(tx: Prisma.TransactionClient, userId: string, id: string): Promise<void> {
     if (!(await tx.device.findFirst({ where: { id, userId }, select: { id: true } })))
@@ -126,15 +129,30 @@ export class SyncRepository {
         (await tx.syncChange.aggregate({ _max: { version: true } }))._max.version ?? 0n;
       const since = BigInt(input.since_version);
       if (since > watermark) fail(422, 'Cursor sinkronisasi melebihi versi server.');
-      const events = await tx.syncChange.findMany({
-        where: { userId, version: { gt: since, lte: watermark } },
-        orderBy: { version: 'asc' },
-        take: input.limit + 1,
-      });
+      // The feed carries current record snapshots, not historical ledger deltas.
+      // Opt-in clients need only the last change per identity in this window.
+      // Bound values and the existing (user_id,version) index keep the scan scoped.
+      const events =
+        input.compact === 'true'
+          ? await tx.$queryRaw<
+              { entityType: string; entityId: string; operation: string; version: bigint }[]
+            >`
+            SELECT entity_type AS "entityType", entity_id AS "entityId", operation, version
+            FROM (
+              SELECT DISTINCT ON (entity_type, entity_id) entity_type, entity_id, operation, version
+              FROM sync_changes
+              WHERE user_id = ${userId}::uuid AND version > ${since} AND version <= ${watermark}
+              ORDER BY entity_type, entity_id, version DESC
+            ) latest
+            ORDER BY version ASC
+            LIMIT ${input.limit + 1}`
+          : await tx.syncChange.findMany({
+              where: { userId, version: { gt: since, lte: watermark } },
+              orderBy: { version: 'asc' },
+              take: input.limit + 1,
+            });
       const page = events.slice(0, input.limit);
-      const changes = [];
       for (const event of page) {
-        const entity = event.entityType;
         if (
           ![
             'account_types',
@@ -143,11 +161,17 @@ export class SyncRepository {
             'transactions',
             'user_profiles',
             'investment_transactions',
-          ].includes(entity)
-        )
+          ].includes(event.entityType)
+        ) {
           throw new Error('Invalid persisted sync entity');
+        }
+      }
+      const payloads = await this.pageData(tx, userId, page);
+      const changes = [];
+      for (const event of page) {
+        const entity = event.entityType;
         // Persisted entity types are constrained by the migration and publication helper.
-        const payload = await this.data(tx, userId, entity as SyncEntity, event.entityId);
+        const payload = payloads.get(`${entity}:${event.entityId}`) ?? null;
         changes.push({
           entity_type: entity,
           entity_id: event.entityId,
@@ -171,6 +195,53 @@ export class SyncRepository {
         has_more: hasMore,
       };
     });
+  }
+
+  private async pageData(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    page: { entityType: string; entityId: string }[],
+  ): Promise<Map<string, SyncData | null>> {
+    const result = new Map<string, SyncData | null>();
+    for (const type of ['accounts', 'transactions', 'investment_transactions'] as const) {
+      const ids = [
+        ...new Set(
+          page.filter((event) => event.entityType === type).map((event) => event.entityId),
+        ),
+      ];
+      if (!ids.length) continue;
+      // Apply exactly the point-read authorization policy to every batch. A
+      // missing/deleted/revoked row stays absent and is emitted as a tombstone.
+      if (type === 'accounts') {
+        const rows = await tx.account.findMany({
+          where: { id: { in: ids }, ...accessibleAccount(userId) },
+        });
+        for (const row of rows) result.set(`${type}:${row.id}`, toAccountDto(row));
+      } else if (type === 'transactions') {
+        const rows = await tx.transaction.findMany({
+          where: { id: { in: ids }, deletedAt: null, account: accessibleAccount(userId) },
+        });
+        for (const row of rows) result.set(`${type}:${row.id}`, toTransactionDto(row));
+      } else {
+        const rows = await tx.investmentTransaction.findMany({
+          where: { id: { in: ids }, deletedAt: null, account: accessibleAccount(userId) },
+        });
+        for (const row of rows) result.set(`${type}:${row.id}`, toInvestmentDto(row));
+      }
+    }
+    for (const event of page) {
+      if (['accounts', 'transactions', 'investment_transactions'].includes(event.entityType))
+        continue;
+      const key = `${event.entityType}:${event.entityId}`;
+      if (!result.has(key)) {
+        // Caller validates the persisted entity type before invoking this helper.
+        result.set(
+          key,
+          await this.data(tx, userId, event.entityType as SyncEntity, event.entityId),
+        );
+      }
+    }
+    return result;
   }
 
   async assertDevice(userId: string, id: string): Promise<void> {

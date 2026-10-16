@@ -744,63 +744,6 @@ const seedRefCategories = [
   { id: '0199a1ba-0000-7000-8000-000000000010', name: 'Lain-lain', type: CategoryType.EXPENSE },
 ] as const;
 
-const seedCategories = [
-  // INCOME
-  // { id: '0199a1b3-0000-7000-8000-000000000001', name: 'Gaji', type: CategoryType.INCOME },
-  // { id: '0199a1b3-0000-7000-8000-000000000002', name: 'Side Job', type: CategoryType.INCOME },
-  // { id: '0199a1b3-0000-7000-8000-000000000003', name: 'Bonus', type: CategoryType.INCOME },
-  // { id: '0199a1b3-0000-7000-8000-000000000004', name: 'Deviden', type: CategoryType.INCOME },
-  // { id: '0199a1b3-0000-7000-8000-000000000005', name: 'Lainnya', type: CategoryType.INCOME },
-  // // EXPENSE
-  // {
-  //   id: '0199a1b3-0000-7000-8000-000000000006',
-  //   name: 'Makanan & Minuman',
-  //   type: CategoryType.EXPENSE,
-  // },
-  // {
-  //   id: '0199a1b3-0000-7000-8000-000000000007',
-  //   name: 'Belanja Bulanan',
-  //   type: CategoryType.EXPENSE,
-  // },
-  // { id: '0199a1b3-0000-7000-8000-000000000008', name: 'Transportasi', type: CategoryType.EXPENSE },
-  // {
-  //   id: '0199a1b3-0000-7000-8000-000000000009',
-  //   name: 'Tagihan & WiFi',
-  //   type: CategoryType.EXPENSE,
-  // },
-  // {
-  //   id: '0199a1b3-0000-7000-8000-00000000000a',
-  //   name: 'Keluarga & Orang Tua',
-  //   type: CategoryType.EXPENSE,
-  // },
-  // {
-  //   id: '0199a1b3-0000-7000-8000-00000000000b',
-  //   name: 'Kesehatan & Obat',
-  //   type: CategoryType.EXPENSE,
-  // },
-  // {
-  //   id: '0199a1b3-0000-7000-8000-00000000000c',
-  //   name: 'Hiburan & Hobi',
-  //   type: CategoryType.EXPENSE,
-  // },
-  // {
-  //   id: '0199a1b3-0000-7000-8000-00000000000d',
-  //   name: 'Pendidikan & Kursus',
-  //   type: CategoryType.EXPENSE,
-  // },
-  // {
-  //   id: '0199a1b3-0000-7000-8000-00000000000e',
-  //   name: 'Cicilan & Pinjaman',
-  //   type: CategoryType.EXPENSE,
-  // },
-  // {
-  //   id: '0199a1b3-0000-7000-8000-00000000000f',
-  //   name: 'Donasi & Zakat',
-  //   type: CategoryType.EXPENSE,
-  // },
-  // { id: '0199a1b3-0000-7000-8000-000000000010', name: 'Lain-lain', type: CategoryType.EXPENSE },
-] as const;
-
 const seedAccountTypes = [
   { id: '0199a1b4-0000-7000-8000-000000000001', name: 'Cash', category: AccountTypeCategory.CASH },
   {
@@ -1272,25 +1215,7 @@ async function main(): Promise<void> {
       });
     }
 
-    // 8. Categories (User categories from ERD)
-    // for (const cat of seedCategories) {
-    //   await transaction.category.upsert({
-    //     where: { id: cat.id },
-    //     create: {
-    //       id: cat.id,
-    //       userId: user.id,
-    //       name: cat.name,
-    //       type: cat.type,
-    //       version: 1n,
-    //     },
-    //     update: {
-    //       userId: user.id,
-    //       name: cat.name,
-    //       type: cat.type,
-    //       deletedAt: null,
-    //     },
-    //   });
-    // }
+    // Personal categories are intentionally not seeded.
 
     // 9. Account Types
     const accountTypeMap = new Map<string, string>();

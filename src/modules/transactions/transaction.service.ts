@@ -12,7 +12,7 @@ import type {
 import { toTransactionDto } from './transaction.types.js';
 
 export class TransactionService {
-  constructor(private readonly repository: TransactionRepository) { }
+  constructor(private readonly repository: TransactionRepository) {}
   async list(userId: string, query: ListTransactionsQuery): Promise<PaginatedData<TransactionDto>> {
     const { items, total } = await this.repository.list(userId, query);
     const offset = (query.page - 1) * query.limit;

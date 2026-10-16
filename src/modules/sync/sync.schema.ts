@@ -46,6 +46,12 @@ export const PullQuerySchema = z.strictObject({
   device_id: z.uuid(),
   since_version: SyncVersionSchema.default('0'),
   limit: z.coerce.number().int().min(1).max(100).default(100),
+  compact: z
+    .enum(['true', 'false'])
+    .optional()
+    .describe(
+      'Opt in to latest-per-entity changes, ordered by their latest global commit version.',
+    ),
 });
 const base = { entity_id: z.uuid(), client_version: SyncVersionSchema };
 const deletions = z.strictObject({

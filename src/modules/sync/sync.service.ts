@@ -2,9 +2,19 @@ import { AppError } from '../../common/errors/app-error.js';
 import { Prisma } from '../../generated/prisma/client.js';
 import { PushItemSchema, type PullQuery, type PushBody, type PushResult } from './sync.schema.js';
 import type { SyncRepository } from './sync.repository.js';
+import type { RecoveryRequest, RecoveryReview } from './investment-recovery.schema.js';
 
 export class SyncService {
   constructor(private readonly repository: SyncRepository) {}
+  requestRecovery(userId: string, input: RecoveryRequest) {
+    return this.repository.requestRecovery(userId, input);
+  }
+  recoveryReceipt(userId: string, tradeId: string) {
+    return this.repository.recoveryReceipt(userId, tradeId);
+  }
+  reviewRecovery(operatorId: string, tradeId: string, input: RecoveryReview) {
+    return this.repository.reviewRecovery(operatorId, tradeId, input);
+  }
   pull(userId: string, query: PullQuery) {
     return this.repository.pull(userId, query);
   }

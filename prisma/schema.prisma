@@ -186,17 +186,18 @@ model UserProfile {
 }
 
 model Device {
-  id              String    @id @db.Uuid
-  userId          String    @map("user_id") @db.Uuid
-  name            String    @db.VarChar(120)
-  platform        String    @db.VarChar(16)
-  appVersion      String    @map("app_version") @db.VarChar(64)
-  lastSyncVersion BigInt    @default(0) @map("last_sync_version")
-  lastSyncAt      DateTime? @map("last_sync_at") @db.Timestamptz(3)
-  lastSeenAt      DateTime? @map("last_seen_at") @db.Timestamptz(3)
-  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt       DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
-  user            User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  investmentRecoveries InvestmentRecovery[]
+  id                   String               @id @db.Uuid
+  userId               String               @map("user_id") @db.Uuid
+  name                 String               @db.VarChar(120)
+  platform             String               @db.VarChar(16)
+  appVersion           String               @map("app_version") @db.VarChar(64)
+  lastSyncVersion      BigInt               @default(0) @map("last_sync_version")
+  lastSyncAt           DateTime?            @map("last_sync_at") @db.Timestamptz(3)
+  lastSeenAt           DateTime?            @map("last_seen_at") @db.Timestamptz(3)
+  createdAt            DateTime             @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt            DateTime             @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   syncChanges SyncChange[]
 
@@ -256,6 +257,8 @@ model AccountType {
 }
 
 model Account {
+  recoveryInvestments        InvestmentRecovery[]     @relation("RecoveryInvestmentAccount")
+  recoveryCash               InvestmentRecovery[]     @relation("RecoveryCashAccount")
   id                         String                   @id @db.Uuid
   userId                     String                   @map("user_id") @db.Uuid
   accountTypeId              String                   @map("account_type_id") @db.Uuid
@@ -402,6 +405,8 @@ model Transfer {
 }
 
 model User {
+  investmentRecoveries          InvestmentRecovery[]    @relation("RecoveryOwner")
+  reviewedInvestmentRecoveries  InvestmentRecovery[]    @relation("RecoveryReviewer")
   id                            String                  @id @db.Uuid
   name                          String                  @db.VarChar(120)
   username                      String?                 @unique @db.VarChar(64)
@@ -655,6 +660,40 @@ model InvestmentTransaction {
   @@index([createdBy])
   @@index([updatedBy])
   @@map("investment_transactions")
+}
+
+model InvestmentRecovery {
+  tradeId             String                     @id @map("trade_id") @db.Uuid
+  linkedTransactionId String                     @unique @map("linked_transaction_id") @db.Uuid
+  userId              String                     @map("user_id") @db.Uuid
+  deviceId            String                     @map("device_id") @db.Uuid
+  accountId           String                     @map("account_id") @db.Uuid
+  cashAccountId       String                     @map("cash_account_id") @db.Uuid
+  commandSha256       String                     @map("command_sha256") @db.Char(64)
+  command             Json
+  status              String                     @default("PENDING") @db.VarChar(16)
+  reviewedBy          String?                    @map("reviewed_by") @db.Uuid
+  reviewReason        String?                    @map("review_reason") @db.VarChar(1000)
+  reviewedAt          DateTime?                  @map("reviewed_at") @db.Timestamptz(3)
+  createdAt           DateTime                   @default(now()) @map("created_at") @db.Timestamptz(3)
+  user                User                       @relation("RecoveryOwner", fields: [userId], references: [id], onDelete: Restrict)
+  reviewer            User?                      @relation("RecoveryReviewer", fields: [reviewedBy], references: [id], onDelete: Restrict)
+  device              Device                     @relation(fields: [deviceId], references: [id], onDelete: Restrict)
+  account             Account                    @relation("RecoveryInvestmentAccount", fields: [accountId], references: [id], onDelete: Restrict)
+  cashAccount         Account                    @relation("RecoveryCashAccount", fields: [cashAccountId], references: [id], onDelete: Restrict)
+  reservedIds         InvestmentCancellationId[]
+
+  @@index([userId, createdAt])
+  @@map("investment_recoveries")
+}
+
+model InvestmentCancellationId {
+  id       String             @id @db.Uuid
+  tradeId  String             @map("trade_id") @db.Uuid
+  recovery InvestmentRecovery @relation(fields: [tradeId], references: [tradeId], onDelete: Restrict)
+
+  @@index([tradeId])
+  @@map("investment_cancellation_ids")
 }
 
 model PortfolioDailySnapshot {

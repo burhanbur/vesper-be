@@ -18,7 +18,7 @@ function paginate<T>(result: { items: T[]; total: number }, page: GroupPage) {
   };
 }
 export class GroupService {
-  constructor(private readonly repository: GroupRepository) { }
+  constructor(private readonly repository: GroupRepository) {}
   async create(userId: string, name: string) {
     for (let attempt = 0; attempt < 5; attempt++) {
       // 48 bits cryptographic entropy, uppercase short alphanumeric, no modulo bias.

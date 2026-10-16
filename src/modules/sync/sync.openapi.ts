@@ -5,6 +5,12 @@ import {
 } from '../../common/contracts/api-response.schema.js';
 import { z } from '../../common/openapi/zod.js';
 import {
+  RecoveryParamsSchema,
+  RecoveryReceiptSchema,
+  RecoveryRequestSchema,
+  RecoveryReviewSchema,
+} from './investment-recovery.schema.js';
+import {
   PullQuerySchema,
   PullResponseSchema,
   PushBodySchema,
@@ -13,6 +19,63 @@ import {
 } from './sync.schema.js';
 
 export function registerSyncOpenApi(registry: OpenAPIRegistry): void {
+  for (const [method, path, operationId, summary, body] of [
+    [
+      'post',
+      '/api/v1/sync/investment-recoveries',
+      'requestInvestmentRecovery',
+      'Request operator review of a never-applied investment command',
+      RecoveryRequestSchema,
+    ],
+    [
+      'get',
+      '/api/v1/sync/investment-recoveries/{tradeId}',
+      'readInvestmentRecovery',
+      'Read an owner-scoped recovery receipt',
+      null,
+    ],
+    [
+      'post',
+      '/api/v1/sync/investment-recoveries/{tradeId}/review',
+      'reviewInvestmentRecovery',
+      'Record a final operator decision',
+      RecoveryReviewSchema,
+    ],
+  ] as const) {
+    registry.registerPath({
+      method,
+      path,
+      operationId,
+      summary,
+      tags: ['Sync'],
+      security: [{ bearerAuth: [] }],
+      description:
+        'Never reverses an applied trade. Owner requests are bound to an owned device, exact canonical wire-command SHA-256 and owned active accounts. Review requires the current sync.investment-recoveries.review permission under database locks. CANCELLED reserves both UUIDs permanently and publishes account snapshots plus trade/cash tombstones atomically. Applied, partial, soft-deleted or colliding records refuse cancellation. Identical requests/decisions replay; altered content conflicts. Mobile must finish authoritative reconciliation before releasing its outbox. Requires the investment-recovery migration; no roles receive review permission automatically. Owner receipts omit command content, reason and reviewer identity.',
+      request: {
+        ...(path.includes('{tradeId}') ? { params: RecoveryParamsSchema } : {}),
+        ...(body
+          ? { body: { required: true, content: { 'application/json': { schema: body } } } }
+          : {}),
+      },
+      responses: {
+        200: {
+          description: 'Status pemulihan.',
+          content: {
+            'application/json': { schema: createSuccessResponseSchema(RecoveryReceiptSchema) },
+          },
+        },
+        ...Object.fromEntries(
+          [401, 403, 404, 409, 422, 429, 500].map((status) => [
+            status,
+            {
+              description: 'Permintaan gagal.',
+              content: { 'application/json': { schema: ErrorResponseSchema } },
+            },
+          ]),
+        ),
+      },
+    });
+  }
   registry.register('SyncPushItem', PushItemSchema);
   const errors = Object.fromEntries(
     [401, 404, 422, 429, 500].map((status) => [
@@ -30,7 +93,7 @@ export function registerSyncOpenApi(registry: OpenAPIRegistry): void {
     tags: ['Sync'],
     summary: 'Pull authorized changes in global commit order',
     description:
-      'Owned device required. Decimal-string cursor, maximum 100 events. Latest authorized payloads; inaccessible/deleted entities return DELETE with null payload. Persist next_version locally only after applying the page; device cursor records delivery, not acknowledgement. No retention. Initial since_version=0 includes migration bootstrap.',
+      'Owned device required. Decimal-string cursor, maximum 100 events. Optional compact=true returns only the latest change for each entity identity after since_version through the page watermark, ordered by that latest global commit version. Omitted/false preserves the original event stream. The feed carries current snapshots, not historical monetary deltas; compaction never deletes persisted events. Each page rechecks current authorization: inaccessible/deleted entities return DELETE with null payload, including identities whose historical CREATE was skipped. New writes between pages may emit the identity again. Persist next_version locally only after applying the page; device cursor records delivery, not acknowledgement. No retention. Initial since_version=0 includes migration bootstrap.',
     security: [{ bearerAuth: [] }],
     request: { query: PullQuerySchema },
     responses: {
