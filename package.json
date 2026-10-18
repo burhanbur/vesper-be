@@ -17,6 +17,7 @@
   },
   "scripts": {
     "dev": "tsx watch src/server.ts",
+    "prebuild": "npm run db:generate",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/server.js",
     "typecheck": "tsc --noEmit",
