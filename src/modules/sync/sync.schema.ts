@@ -14,7 +14,7 @@ import { CreateTransferSchema } from '../transfers/transfer.schema.js';
 import { CreateInvestmentSchema } from '../investments/investment.schema.js';
 
 export const OfflineInvestmentPayloadSchema = CreateInvestmentSchema.extend({
-  type: z.enum(['BUY', 'SELL']),
+  type: z.enum(['BUY', 'SELL', 'DIVIDEND']),
   cash_account_id: z.uuid(),
   linked_transaction_id: z.uuid(),
 });

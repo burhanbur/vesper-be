@@ -21,13 +21,13 @@ const command = {
 };
 
 describe('investment sync command validation', () => {
-  it.each(['BUY', 'SELL'])('accepts exact decimal %s commands', (type) => {
+  it.each(['BUY', 'SELL', 'DIVIDEND'])('accepts exact decimal %s commands', (type) => {
     expect(
       PushItemSchema.safeParse({ ...command, payload: { ...command.payload, type } }).success,
     ).toBe(true);
   });
   it.each([
-    { type: 'DIVIDEND' },
+    { type: 'UNKNOWN' },
     { cash_account_id: null },
     { quantity: 2 },
     { quantity: '0' },

@@ -1,4 +1,9 @@
 import cors from 'cors';
+import {
+  PrismaNetWorthRepository,
+  type NetWorthRepository,
+} from './modules/net-worth/net-worth.repository.js';
+import { createNetWorthRouter } from './modules/net-worth/net-worth.route.js';
 import { CollaborationRepository } from './modules/groups/collaboration.repository.js';
 import { createCollaborationRouter } from './modules/groups/collaboration.route.js';
 import {
@@ -104,6 +109,7 @@ import {
 import { createReferenceRouter } from './modules/references/reference.route.js';
 
 export type AppDependencies = {
+  netWorthRepository?: NetWorthRepository;
   dashboardRepository?: DashboardRepository;
   referenceRepository?: ReferenceRepository;
   userRepository: UserRepository;
@@ -132,6 +138,7 @@ export type AppDependencies = {
 function defaultDependencies(): AppDependencies {
   const synced = syncClient(prisma);
   return {
+    netWorthRepository: new PrismaNetWorthRepository(prisma),
     dashboardRepository: new PrismaDashboardRepository(prisma),
     referenceRepository: new PrismaReferenceRepository(prisma),
     apiKeyRepository: new PrismaApiKeyRepository(prisma),
@@ -209,6 +216,12 @@ export function createApp(dependencies: AppDependencies = defaultDependencies())
     app.use(
       '/api/v1/groups',
       createCollaborationRouter(dependencies.collaborationRepository, authService),
+    );
+  }
+  if (dependencies.netWorthRepository) {
+    app.use(
+      '/api/v1/net-worth',
+      createNetWorthRouter(dependencies.netWorthRepository, authService),
     );
   }
   if (dependencies.dashboardRepository) {

@@ -21,6 +21,21 @@ enum NotificationType {
   @@map("notification_type")
 }
 
+// Derived owner-only evidence, immutable after first insertion for a UTC day.
+model NetWorthObservation {
+  id           String   @id @db.Uuid
+  userId       String   @map("user_id") @db.Uuid
+  currency     String   @db.VarChar(3)
+  snapshotDate DateTime @map("snapshot_date") @db.Date
+  observedAt   DateTime @map("observed_at") @db.Timestamptz(3)
+  payload      Json     @db.JsonB
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  user         User     @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([userId, currency, snapshotDate])
+  @@map("net_worth_observations")
+}
+
 model Notification {
   id        String           @id @db.Uuid
   userId    String           @map("user_id") @db.Uuid
@@ -423,6 +438,7 @@ model User {
   profile                       UserProfile?
   devices                       Device[]
   syncChanges                   SyncChange[]
+  netWorthObservations          NetWorthObservation[]
   notifications                 Notification[]
   groupMemberships              UserGroup[]             @relation("GroupMember")
   createdMemberships            UserGroup[]             @relation("MembershipCreator")

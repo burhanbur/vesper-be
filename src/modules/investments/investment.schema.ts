@@ -19,6 +19,10 @@ export const InstrumentTypeSchema = z.enum([
 ]);
 export const InvestmentTypeSchema = z.enum(['BUY', 'SELL', 'DIVIDEND']);
 export const CreateInstrumentSchema = z.strictObject({
+  id: z
+    .uuid()
+    .optional()
+    .describe('Client UUID for retry-safe creation; same ID requires identical metadata.'),
   code: z
     .string()
     .trim()

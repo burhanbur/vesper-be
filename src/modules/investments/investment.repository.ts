@@ -102,8 +102,28 @@ export class PrismaInvestmentRepository implements InvestmentRepository {
     return { items, total };
   }
   createInstrument(input: CreateInstrumentInput) {
-    // DB unique(code) arbitrates concurrent global inserts; centralized P2002 -> 409.
-    return this.client.instrument.create({ data: { id: generateId(), ...input } });
+    const id = input.id ?? generateId();
+    return this.client.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${'investment:catalog:' + id}::text, 0))::text`;
+      const previous = await tx.instrument.findUnique({ where: { id } });
+      if (previous) {
+        if (
+          previous.deletedAt ||
+          previous.code !== input.code ||
+          previous.name !== input.name ||
+          previous.type !== input.type ||
+          previous.currency !== input.currency
+        )
+          investmentError(
+            'INSTRUMENT_COMMAND_CONFLICT',
+            'Identitas instrumen sudah digunakan.',
+            409,
+          );
+        return previous;
+      }
+      // Global code uniqueness still arbitrates independently generated IDs.
+      return tx.instrument.create({ data: { ...input, id } });
+    });
   }
   async listPrices(query: ListPricesQuery) {
     const where: Prisma.InstrumentPriceWhereInput = {
@@ -149,10 +169,10 @@ export class PrismaInvestmentRepository implements InvestmentRepository {
     linkedTransactionId: string,
     input: CreateInvestmentInput,
   ) {
-    if (!input.cash_account_id || id === linkedTransactionId || input.type === 'DIVIDEND')
+    if (!input.cash_account_id || id === linkedTransactionId)
       investmentError(
         'INVESTMENT_COMMAND_INVALID',
-        'Command investasi BUY/SELL memerlukan akun kas dan ID berbeda.',
+        'Command investasi memerlukan akun kas dan ID berbeda.',
       );
     return this.createTransaction(userId, input, { id, linkedTransactionId });
   }

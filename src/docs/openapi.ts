@@ -42,7 +42,10 @@ import { registerApiKeyOpenApi } from '../modules/api-keys/api-key.openapi.js';
 import { registerReferenceOpenApi } from '../modules/references/reference.openapi.js';
 import { registerDashboardOpenApi } from '../modules/dashboard/dashboard.openapi.js';
 
+import { registerNetWorthOpenApi } from '../modules/net-worth/net-worth.openapi.js';
+
 const registry = new OpenAPIRegistry();
+registerNetWorthOpenApi(registry);
 registerDashboardOpenApi(registry);
 registerReferenceOpenApi(registry);
 registerApiKeyOpenApi(registry);

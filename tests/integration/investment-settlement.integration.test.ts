@@ -90,6 +90,58 @@ afterAll(async () => {
 });
 
 describe('investment settlement on isolated PostgreSQL', () => {
+  it('replays concurrent instrument creation with a client UUID and rejects altered metadata', async () => {
+    const id = generateId();
+    const input = {
+      id,
+      code: `WM05-${id.toUpperCase()}`,
+      name: 'Lifecycle asset',
+      type: 'STOCK' as const,
+      currency: 'IDR' as const,
+    };
+    const records = await Promise.all([
+      repository.createInstrument(input),
+      repository.createInstrument(input),
+    ]);
+    expect(records.map((r) => r.id)).toEqual([id, id]);
+    await expect(repository.createInstrument({ ...input, name: 'Changed' })).rejects.toMatchObject({
+      code: 'INSTRUMENT_COMMAND_CONFLICT',
+    });
+    expect(await client.instrument.count({ where: { id } })).toBe(1);
+  });
+
+  it('replays dividend commands once, preserves holdings, and enforces access and immutable payload', async () => {
+    const f = await fixture();
+    await repository.createTransaction(f.userId, f.input);
+    const before = await repository.holdings(f.userId, f.accountId);
+    const input = {
+      ...f.input,
+      type: 'DIVIDEND' as const,
+      quantity: '2',
+      price_per_unit: '1.005',
+      fee: '0.01',
+      transacted_at: '2026-10-16T00:00:00.000Z',
+    };
+    const id = generateId(),
+      leg = generateId();
+    await Promise.all([
+      repository.createOffline(f.userId, id, leg, input),
+      repository.createOffline(f.userId, id, leg, input),
+    ]);
+    expect(await repository.holdings(f.userId, f.accountId)).toEqual(before);
+    const state = await persisted(f);
+    expect(state.trades).toHaveLength(2);
+    expect(state.ledger).toHaveLength(2);
+    expect(state.ledger.find((r) => r.id === leg)?.amount.toString()).toBe('2');
+    expect(state.accounts.find((r) => r.id === f.cashId)?.balance.toString()).toBe('-19');
+    await expect(
+      repository.createOffline(f.userId, id, leg, { ...input, fee: '0' }),
+    ).rejects.toMatchObject({ code: 'INVESTMENT_COMMAND_CONFLICT' });
+    const other = await fixture();
+    await expect(repository.createOffline(other.userId, id, leg, input)).rejects.toThrow();
+    expect(await persisted(f)).toEqual(state);
+  });
+
   it('publishes a sync command atomically and replays across devices without new events', async () => {
     const f = await fixture();
     const devices = [generateId(), generateId()];
