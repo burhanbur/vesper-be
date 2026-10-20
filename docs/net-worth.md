@@ -1,6 +1,6 @@
 # WM-02 — Owner net worth read contract
 
-**Status: WM-02 complete (backend forward-history and mobile partial assessment).** Current owner assessments now materialize durable daily observations. Previously captured days are readable; dates without observations remain explicitly unavailable. Full `net_worth` remains null pending WM-06 liabilities/receivables, as permitted by the PRD.
+**Status: WM-02 complete (backend forward-history and mobile partial assessment).** Current owner assessments now materialize durable daily observations. Previously captured days are readable; dates without observations remain explicitly unavailable. WM-06 now adds owner obligations/receivables and complete recorded-component totals; see `obligations.md`. Historical partial observations remain unchanged.
 
 ## Mobile API
 
@@ -17,7 +17,7 @@ Requires access Bearer JWT and active Redis session; no extra RBAC permission. S
 | `snapshot_date`             | Requested/resolved UTC date                                                                                                                                                                                                                    |
 | `observed_at`               | UTC ISO observation-start time, preserved verbatim for captured history; response time only for missing history                                                                                                                                |
 | `balance_basis`             | `current_recorded_ledger` for live today, `captured_recorded_ledger` for stored history, or `unavailable`                                                                                                                                      |
-| `status`                    | `partial` for live/captured evidence; `unavailable` for missing history                                                                                                                                                                        |
+| `status`                    | `complete` when recorded components are available, `partial` for missing components/old observations; `unavailable` for missing history                                                                                                        |
 | `known_assets`              | Nonnegative eligible balances plus **known** priced holdings, two-decimal string or null                                                                                                                                                       |
 | `known_balance_liabilities` | Absolute negative eligible balances, two-decimal string or null; NOT complete debt                                                                                                                                                             |
 | `known_net_worth`           | Known assets minus known balance liabilities, two-decimal string or null; a partial subtotal, NOT complete net worth                                                                                                                           |
@@ -59,3 +59,16 @@ Apply additive migration `20261020120000_net_worth_observations` through the nor
 - Historical reads require the current active JWT identity/session, not capture-time group membership. Storage lookup requires owner ID, currency, date and currently active/non-deleted owner. Stored payload contains owner-only financial data; no household membership, share grants, names or another owner's accounts. Later account deletion does not revoke the active owner's own old evidence. No shared-history selector exists.
 - No HTTP cache, new permissions or dependencies. Derived storage is append-only through this API; no update/delete route or sync publication. Scope bounded at 1000 owner currency accounts and 10000 grouped position rows; overflow returns safe 422 instead of silently truncating totals. Retention is indefinite; no automatic purge is introduced.
 - Unit/HTTP tests cover decimal precision, missing/stale valuation, settlement/transfer invariance, owner boundaries and unavailable history. Isolated PostgreSQL tests exercise actual migrated persistence, first-write concurrency, immutable late changes, owner/currency/day scoping, current-active identity and absence of financial/sync writes.
+
+## WM-06 contract extension
+
+Current reads include exact outstanding payables (`obligation_liabilities`) and
+receivables (`receivables_value`, already included in `known_assets`). A mapped
+legacy account is replaced rather than added a second time. `known_net_worth` is
+`known_assets - known_balance_liabilities - obligation_liabilities`. When
+recorded valuations and mappings are complete, `status=complete` and `net_worth`
+equals that amount; otherwise it remains null. Attribution unavailability alone
+does not prevent recorded-component completeness. Earlier captured payloads
+retain their original shape and partial status. See [obligations.md](obligations.md)
+for signed balance mapping, privacy, and rollout policy. This extends the WM-02
+partial-only field descriptions above; it never rewrites past observations.

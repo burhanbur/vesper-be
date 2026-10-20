@@ -218,7 +218,7 @@ export class PrismaTransactionRepository implements TransactionRepository {
           'Transaksi investasi turunan tidak dapat diubah atau dihapus manual.',
           current,
         );
-      if (current.transferId !== null || current.type === 'TRANSFER')
+      if (current.transferId !== null || current.type === 'TRANSFER' || current.obligationEventId)
         conflict(
           'TRANSACTION_TRANSFER_LINKED',
           'Transaksi transfer hanya dapat diubah melalui modul transfer.',

@@ -20,9 +20,14 @@ export async function lockLedgerAccounts(
   userId: string,
   accountIds: string[],
   missingStatus: 404 | 422 = 422,
+  allowMappedObligation = false,
 ): Promise<Account[]> {
   const ids = [...new Set(accountIds)].sort((a, b) => a.localeCompare(b));
-  const where = { id: { in: ids }, ...ownedLedgerAccount(userId) };
+  const where = {
+    id: { in: ids },
+    ...ownedLedgerAccount(userId),
+    ...(!allowMappedObligation ? { mappedObligations: { none: { deletedAt: null } } } : {}),
+  };
   const reject = (): never => {
     throw new AppError({
       statusCode: missingStatus,
@@ -65,7 +70,7 @@ export async function recomputeLedgerBalances(
         accountId: account.id,
         deletedAt: null,
         OR: [
-          { type: 'TRANSFER', transferId: null },
+          { type: 'TRANSFER', transferId: null, obligationEventId: null },
           { type: { not: 'TRANSFER' }, transferId: { not: null } },
         ],
       },
@@ -87,9 +92,34 @@ export async function recomputeLedgerBalances(
     let balance = new LedgerDecimal(income).minus(expense);
     const legs = await tx.transaction.findMany({
       where: { accountId: account.id, deletedAt: null, type: 'TRANSFER' },
-      include: { transfer: { include: { transactions: true } } },
+      include: {
+        transfer: { include: { transactions: true } },
+        obligationEvent: { include: { obligation: true } },
+      },
     });
     for (const leg of legs) {
+      if (leg.transferId === null && leg.obligationEvent) {
+        const event = leg.obligationEvent;
+        const debt = event.obligation;
+        if (
+          !debt ||
+          event.reversedAt ||
+          !['OPEN', 'REPAY'].includes(event.operation) ||
+          leg.categoryId !== null
+        )
+          malformed();
+        const sign = debt.kind === 'PAYABLE' ? 1 : -1;
+        const cash = leg.id === event.cashPrincipalId && leg.accountId === event.cashAccountId;
+        const mapped =
+          event.operation === 'REPAY' &&
+          leg.id === event.mappedPrincipalId &&
+          leg.accountId === debt.linkedAccountId;
+        const expected = new LedgerDecimal(event.principal.toString()).mul(
+          cash ? (event.operation === 'OPEN' ? sign : -sign) : sign,
+        );
+        if ((!cash && !mapped) || !expected.equals(leg.amount)) malformed();
+        continue;
+      }
       const transfer = leg.transfer;
       if (
         transfer?.deletedAt !== null ||

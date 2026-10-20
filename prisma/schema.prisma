@@ -272,6 +272,8 @@ model AccountType {
 }
 
 model Account {
+  mappedObligations          Obligation[]             @relation("MappedObligationAccount")
+  obligationCashEvents       ObligationEvent[]        @relation("ObligationCashAccount")
   recoveryInvestments        InvestmentRecovery[]     @relation("RecoveryInvestmentAccount")
   recoveryCash               InvestmentRecovery[]     @relation("RecoveryCashAccount")
   id                         String                   @id @db.Uuid
@@ -356,6 +358,8 @@ enum TransactionType {
 }
 
 model Transaction {
+  obligationEventId     String?                @map("obligation_event_id") @db.Uuid
+  obligationEvent       ObligationEvent?       @relation(fields: [obligationEventId], references: [id], onDelete: Restrict)
   id                    String                 @id @db.Uuid
   accountId             String                 @map("account_id") @db.Uuid
   categoryId            String?                @map("category_id") @db.Uuid
@@ -387,6 +391,7 @@ model Transaction {
   @@index([createdBy])
   @@index([updatedBy])
   @@index([deletedBy])
+  @@index([obligationEventId], map: "transactions_obligation_event_idx")
   @@map("transactions")
 }
 
@@ -420,6 +425,8 @@ model Transfer {
 }
 
 model User {
+  obligations                   Obligation[]
+  obligationEvents              ObligationEvent[]
   investmentRecoveries          InvestmentRecovery[]    @relation("RecoveryOwner")
   reviewedInvestmentRecoveries  InvestmentRecovery[]    @relation("RecoveryReviewer")
   id                            String                  @id @db.Uuid
@@ -710,6 +717,76 @@ model InvestmentCancellationId {
 
   @@index([tradeId])
   @@map("investment_cancellation_ids")
+}
+
+model Obligation {
+  id              String            @id @db.Uuid
+  userId          String            @map("user_id") @db.Uuid
+  kind            String            @db.VarChar(16)
+  counterparty    String            @db.VarChar(255)
+  currency        String            @default("IDR") @db.VarChar(3)
+  principal       Decimal           @db.Decimal(20, 2)
+  outstanding     Decimal           @db.Decimal(20, 2)
+  dueDate         DateTime?         @map("due_date") @db.Date
+  installments    Json              @db.JsonB
+  linkedAccountId String?           @map("linked_account_id") @db.Uuid
+  version         BigInt            @default(1)
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt       DateTime?         @map("deleted_at") @db.Timestamptz(3)
+  user            User              @relation(fields: [userId], references: [id], onDelete: Restrict)
+  linkedAccount   Account?          @relation("MappedObligationAccount", fields: [linkedAccountId], references: [id], onDelete: Restrict)
+  events          ObligationEvent[]
+
+  @@index([userId, deletedAt, createdAt, id])
+  @@index([linkedAccountId, deletedAt])
+  @@map("obligations")
+}
+
+model ObligationEvent {
+  id                String                @id @db.Uuid
+  userId            String                @map("user_id") @db.Uuid
+  obligationId      String?               @map("obligation_id") @db.Uuid
+  operation         String                @db.VarChar(16)
+  principal         Decimal               @db.Decimal(20, 2)
+  interest          Decimal               @db.Decimal(20, 2)
+  fee               Decimal               @db.Decimal(20, 2)
+  cashAccountId     String?               @map("cash_account_id") @db.Uuid
+  cashPrincipalId   String?               @unique @map("cash_principal_id") @db.Uuid
+  mappedPrincipalId String?               @unique @map("mapped_principal_id") @db.Uuid
+  interestId        String?               @unique @map("interest_id") @db.Uuid
+  feeId             String?               @unique @map("fee_id") @db.Uuid
+  targetEventId     String?               @map("target_event_id") @db.Uuid
+  command           Json                  @db.JsonB
+  fingerprint       String                @db.Char(64)
+  transactedAt      DateTime              @map("transacted_at") @db.Timestamptz(3)
+  reversedAt        DateTime?             @map("reversed_at") @db.Timestamptz(3)
+  version           BigInt                @default(1)
+  createdAt         DateTime              @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime              @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt         DateTime?             @map("deleted_at") @db.Timestamptz(3)
+  user              User                  @relation(fields: [userId], references: [id], onDelete: Restrict)
+  obligation        Obligation?           @relation(fields: [obligationId], references: [id], onDelete: Restrict)
+  cashAccount       Account?              @relation("ObligationCashAccount", fields: [cashAccountId], references: [id], onDelete: Restrict)
+  targetEvent       ObligationEvent?      @relation("ObligationReversal", fields: [targetEventId], references: [id], onDelete: Restrict)
+  reversals         ObligationEvent[]     @relation("ObligationReversal")
+  transactions      Transaction[]
+  reservedIds       ObligationCommandId[]
+
+  @@index([userId, createdAt, id])
+  @@index([obligationId, transactedAt, id])
+  @@index([cashAccountId])
+  @@index([targetEventId])
+  @@map("obligation_events")
+}
+
+model ObligationCommandId {
+  id      String          @id @db.Uuid
+  eventId String          @map("event_id") @db.Uuid
+  event   ObligationEvent @relation(fields: [eventId], references: [id], onDelete: Restrict)
+
+  @@index([eventId])
+  @@map("obligation_command_ids")
 }
 
 model PortfolioDailySnapshot {

@@ -12,6 +12,7 @@ import {
 import { PatchProfileSchema } from '../profiles/profile.schema.js';
 import { CreateTransferSchema } from '../transfers/transfer.schema.js';
 import { CreateInvestmentSchema } from '../investments/investment.schema.js';
+import { ObligationCommandSchema } from '../obligations/obligation.schema.js';
 
 export const OfflineInvestmentPayloadSchema = CreateInvestmentSchema.extend({
   type: z.enum(['BUY', 'SELL', 'DIVIDEND']),
@@ -41,6 +42,8 @@ export const SyncEntitySchema = z.enum([
   'transactions',
   'user_profiles',
   'investment_transactions',
+  'obligations',
+  'obligation_events',
 ]);
 export const PullQuerySchema = z.strictObject({
   device_id: z.uuid(),
@@ -56,11 +59,29 @@ export const PullQuerySchema = z.strictObject({
 const base = { entity_id: z.uuid(), client_version: SyncVersionSchema };
 const deletions = z.strictObject({
   ...base,
-  entity_type: SyncEntitySchema.exclude(['investment_transactions']),
+  entity_type: SyncEntitySchema.exclude([
+    'investment_transactions',
+    'obligations',
+    'obligation_events',
+  ]),
   operation: z.literal('DELETE'),
   payload: z.null(),
 });
 export const PushItemSchema = z.union([
+  z.strictObject({
+    entity_id: z.uuid(),
+    client_version: z.literal('0'),
+    entity_type: z.literal('obligation_cancellations'),
+    operation: z.literal('CREATE'),
+    payload: ObligationCommandSchema,
+  }),
+  z.strictObject({
+    entity_id: z.uuid(),
+    client_version: z.literal('0'),
+    entity_type: z.literal('obligation_commands'),
+    operation: z.literal('CREATE'),
+    payload: ObligationCommandSchema,
+  }),
   z
     .strictObject({
       entity_id: z.uuid(),

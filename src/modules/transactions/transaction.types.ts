@@ -4,6 +4,7 @@ import type { TransactionDto } from './transaction.schema.js';
 export type TransactionRecord = Transaction;
 export function toTransactionDto(record: TransactionRecord): TransactionDto {
   return {
+    ...(record.obligationEventId ? { is_obligation_settlement: true } : {}),
     id: record.id,
     account_id: record.accountId,
     category_id: record.categoryId,

@@ -17,6 +17,8 @@ export const syncEntities = {
   transaction: 'transactions',
   investmentTransaction: 'investment_transactions',
   userProfile: 'user_profiles',
+  obligation: 'obligations',
+  obligationEvent: 'obligation_events',
 } as const;
 export type SyncEntity = (typeof syncEntities)[keyof typeof syncEntities];
 
@@ -82,7 +84,8 @@ async function recipients(
   if (entity === 'transactions' || entity === 'investment_transactions')
     return record.accountId ? accountRecipients(tx, record.accountId) : [];
   if (!record.userId) return [];
-  if (entity === 'user_profiles') return [record.userId];
+  if (entity === 'user_profiles' || entity === 'obligations' || entity === 'obligation_events')
+    return [record.userId];
   return metadataRecipients(tx, record.userId, entity === 'account_types' ? record.id : undefined);
 }
 

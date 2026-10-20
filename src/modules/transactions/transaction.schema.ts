@@ -71,6 +71,7 @@ export const ListTransactionsQuerySchema = z.strictObject({
     }),
 });
 export const TransactionDtoSchema = z.strictObject({
+  is_obligation_settlement: z.boolean().optional(),
   id: z.uuid(),
   account_id: z.uuid(),
   category_id: z.uuid().nullable(),

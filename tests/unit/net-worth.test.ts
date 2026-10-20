@@ -211,6 +211,7 @@ describe('owner net worth', () => {
       account: { findMany },
       investmentTransaction: { groupBy },
       instrument: { findMany: vi.fn().mockResolvedValue([]) },
+      obligation: { findMany: vi.fn().mockResolvedValue([]) },
     };
     const transaction = vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
       callback(tx),

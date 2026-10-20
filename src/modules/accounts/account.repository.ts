@@ -127,7 +127,14 @@ export class PrismaAccountRepository implements AccountRepository {
       if (visited.has(cursor))
         reject('ACCOUNT_HIERARCHY_CYCLE', 'Hierarki akun tidak boleh membentuk siklus.');
       visited.add(cursor);
-      const parent = await tx.account.findFirst({ where: { id: cursor, userId, deletedAt: null } });
+      const parent = await tx.account.findFirst({
+        where: {
+          id: cursor,
+          userId,
+          deletedAt: null,
+          mappedObligations: { none: { deletedAt: null } },
+        },
+      });
       if (parent?.accountTypeId !== typeId) {
         throw new AppError({
           statusCode: 422,
@@ -183,7 +190,9 @@ export class PrismaAccountRepository implements AccountRepository {
 
   update(userId: string, id: string, input: UpdateAccountInput): Promise<AccountRecord> {
     return this.write(userId, async (tx) => {
-      const current = await tx.account.findFirst({ where: { id, userId, deletedAt: null } });
+      const current = await tx.account.findFirst({
+        where: { id, userId, deletedAt: null, mappedObligations: { none: { deletedAt: null } } },
+      });
       if (!current) missing();
       assertVersion(current, BigInt(input.version));
       const typeId = input.account_type_id ?? current.accountTypeId;

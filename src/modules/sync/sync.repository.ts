@@ -31,8 +31,10 @@ import { PrismaTransferRepository } from '../transfers/transfer.repository.js';
 import { toTransferDto } from '../transfers/transfer.types.js';
 import { PrismaInvestmentRepository } from '../investments/investment.repository.js';
 import { toInvestmentDto } from '../investments/investment.types.js';
-import type { PullQuery, PushItem } from './sync.schema.js';
+import { SyncEntitySchema, type PullQuery, type PushItem } from './sync.schema.js';
 import { InvestmentRecoveryRepository } from './investment-recovery.repository.js';
+import { ObligationRepository } from '../obligations/obligation.repository.js';
+import { toObligationDto, toObligationEventDto } from '../obligations/obligation.types.js';
 
 function fail(statusCode: number, message: string): never {
   throw new AppError({ statusCode, code: 'SYNC_MUTATION_REJECTED', message });
@@ -58,7 +60,12 @@ export class SyncRepository extends InvestmentRecoveryRepository {
   }
 
   private async device(tx: Prisma.TransactionClient, userId: string, id: string): Promise<void> {
-    if (!(await tx.device.findFirst({ where: { id, userId }, select: { id: true } })))
+    if (
+      !(await tx.device.findFirst({
+        where: { id, userId, user: { status: 'ACTIVE', deletedAt: null } },
+        select: { id: true },
+      }))
+    )
       fail(404, 'Perangkat tidak ditemukan.');
   }
 
@@ -69,6 +76,23 @@ export class SyncRepository extends InvestmentRecoveryRepository {
     id: string,
     tombstone = false,
   ): Promise<SyncData | null> {
+    if (entity === 'obligations') {
+      const record = await tx.obligation.findFirst({
+        where: {
+          id,
+          userId,
+          user: { status: 'ACTIVE', deletedAt: null },
+          ...(tombstone ? {} : { deletedAt: null }),
+        },
+      });
+      return record ? toObligationDto(record) : null;
+    }
+    if (entity === 'obligation_events') {
+      const record = await tx.obligationEvent.findFirst({
+        where: { id, userId, user: { status: 'ACTIVE', deletedAt: null } },
+      });
+      return record ? toObligationEventDto(record) : null;
+    }
     if (entity === 'user_profiles') {
       if (id !== userId) return null;
       const record = await tx.userProfile.findUnique({ where: { userId } });
@@ -153,16 +177,7 @@ export class SyncRepository extends InvestmentRecoveryRepository {
             });
       const page = events.slice(0, input.limit);
       for (const event of page) {
-        if (
-          ![
-            'account_types',
-            'accounts',
-            'categories',
-            'transactions',
-            'user_profiles',
-            'investment_transactions',
-          ].includes(event.entityType)
-        ) {
+        if (!SyncEntitySchema.safeParse(event.entityType).success) {
           throw new Error('Invalid persisted sync entity');
         }
       }
@@ -203,7 +218,7 @@ export class SyncRepository extends InvestmentRecoveryRepository {
     page: { entityType: string; entityId: string }[],
   ): Promise<Map<string, SyncData | null>> {
     const result = new Map<string, SyncData | null>();
-    for (const type of ['accounts', 'transactions', 'investment_transactions'] as const) {
+    for (const type of ['accounts', 'transactions', 'investment_transactions', 'obligations', 'obligation_events'] as const) {
       const ids = [
         ...new Set(
           page.filter((event) => event.entityType === type).map((event) => event.entityId),
@@ -222,15 +237,21 @@ export class SyncRepository extends InvestmentRecoveryRepository {
           where: { id: { in: ids }, deletedAt: null, account: accessibleAccount(userId) },
         });
         for (const row of rows) result.set(`${type}:${row.id}`, toTransactionDto(row));
-      } else {
+      } else if (type === 'investment_transactions') {
         const rows = await tx.investmentTransaction.findMany({
           where: { id: { in: ids }, deletedAt: null, account: accessibleAccount(userId) },
         });
         for (const row of rows) result.set(`${type}:${row.id}`, toInvestmentDto(row));
+      } else if (type === 'obligations') {
+        const rows = await tx.obligation.findMany({ where: { id: { in: ids }, userId, deletedAt: null, user: { status: 'ACTIVE', deletedAt: null } } });
+        for (const row of rows) result.set(`${type}:${row.id}`, toObligationDto(row));
+      } else {
+        const rows = await tx.obligationEvent.findMany({ where: { id: { in: ids }, userId, user: { status: 'ACTIVE', deletedAt: null } } });
+        for (const row of rows) result.set(`${type}:${row.id}`, toObligationEventDto(row));
       }
     }
     for (const event of page) {
-      if (['accounts', 'transactions', 'investment_transactions'].includes(event.entityType))
+      if (['accounts', 'transactions', 'investment_transactions', 'obligations', 'obligation_events'].includes(event.entityType))
         continue;
       const key = `${event.entityType}:${event.entityId}`;
       if (!result.has(key)) {
@@ -251,6 +272,34 @@ export class SyncRepository extends InvestmentRecoveryRepository {
   async apply(userId: string, deviceId: string, item: PushItem) {
     return syncClient(this.client, deviceId).$transaction(async (tx) => {
       await this.device(tx, userId, deviceId);
+      if (item.entity_type === 'obligation_cancellations') {
+        const result = await new ObligationRepository(transactionClient(tx)).cancel(
+          userId,
+          item.entity_id,
+          item.payload,
+        );
+        return { status: 'applied' as const, server_data: result };
+      }
+      if (item.entity_type === 'obligation_commands') {
+        const result = await new ObligationRepository(transactionClient(tx)).apply(
+          userId,
+          item.entity_id,
+          item.payload,
+        );
+        return { status: 'applied' as const, server_data: result };
+      }
+      const payloadIds =
+        item.payload && typeof item.payload === 'object'
+          ? Object.entries(item.payload)
+              .filter(([key, value]) => key.endsWith('transaction_id') && typeof value === 'string')
+              .map(([, value]) => String(value))
+          : [];
+      if (
+        await tx.obligationCommandId.count({
+          where: { id: { in: [item.entity_id, ...payloadIds] } },
+        })
+      )
+        fail(409, 'ID sudah digunakan oleh perintah pinjaman.');
       if (item.entity_type === 'investment_transactions') {
         const { linked_transaction_id, ...input } = item.payload;
         const trade = await new PrismaInvestmentRepository(transactionClient(tx)).createOffline(
@@ -278,7 +327,9 @@ export class SyncRepository extends InvestmentRecoveryRepository {
       if (
         item.entity_type === 'transactions' &&
         before &&
-        (before.transfer_id !== null || before.category_id === null)
+        (before.transfer_id !== null ||
+          before.category_id === null ||
+          before.is_obligation_settlement === true)
       )
         fail(422, 'Transaksi turunan harus dikelola melalui modul online.');
       const payload = item.payload;
