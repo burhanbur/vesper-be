@@ -13,6 +13,12 @@ import { PatchProfileSchema } from '../profiles/profile.schema.js';
 import { CreateTransferSchema } from '../transfers/transfer.schema.js';
 import { CreateInvestmentSchema } from '../investments/investment.schema.js';
 import { ObligationCommandSchema } from '../obligations/obligation.schema.js';
+import {
+  CreateGoalSchema,
+  UpdateGoalSchema,
+  CreateGoalAllocationSchema,
+  UpdateGoalAllocationSchema,
+} from '../goals/goal.schema.js';
 
 export const OfflineInvestmentPayloadSchema = CreateInvestmentSchema.extend({
   type: z.enum(['BUY', 'SELL', 'DIVIDEND']),
@@ -44,6 +50,8 @@ export const SyncEntitySchema = z.enum([
   'investment_transactions',
   'obligations',
   'obligation_events',
+  'goals',
+  'goal_allocations',
 ]);
 export const PullQuerySchema = z.strictObject({
   device_id: z.uuid(),
@@ -68,6 +76,30 @@ const deletions = z.strictObject({
   payload: z.null(),
 });
 export const PushItemSchema = z.union([
+  z.strictObject({
+    ...base,
+    entity_type: z.literal('goals'),
+    operation: z.literal('CREATE'),
+    payload: CreateGoalSchema,
+  }),
+  z.strictObject({
+    ...base,
+    entity_type: z.literal('goals'),
+    operation: z.literal('UPDATE'),
+    payload: UpdateGoalSchema,
+  }),
+  z.strictObject({
+    ...base,
+    entity_type: z.literal('goal_allocations'),
+    operation: z.literal('CREATE'),
+    payload: CreateGoalAllocationSchema,
+  }),
+  z.strictObject({
+    ...base,
+    entity_type: z.literal('goal_allocations'),
+    operation: z.literal('UPDATE'),
+    payload: UpdateGoalAllocationSchema,
+  }),
   z.strictObject({
     entity_id: z.uuid(),
     client_version: z.literal('0'),

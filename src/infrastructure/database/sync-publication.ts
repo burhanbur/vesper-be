@@ -5,6 +5,7 @@ import {
   activeMember,
 } from '../../common/authorization/account-access.js';
 import type { Prisma, PrismaClient } from '../../generated/prisma/client.js';
+import { goalRecipients } from '../../modules/goals/goal.repository.js';
 
 export const SYNC_LOCK = 5786933010410n;
 export async function lockSync(tx: Prisma.TransactionClient): Promise<void> {
@@ -19,6 +20,8 @@ export const syncEntities = {
   userProfile: 'user_profiles',
   obligation: 'obligations',
   obligationEvent: 'obligation_events',
+  goal: 'goals',
+  goalAllocation: 'goal_allocations',
 } as const;
 export type SyncEntity = (typeof syncEntities)[keyof typeof syncEntities];
 
@@ -63,11 +66,17 @@ export async function publish(
   }
 }
 
-type Row = { id?: string; userId?: string; accountId?: string; deletedAt?: Date | null };
+type Row = {
+  id?: string;
+  userId?: string;
+  accountId?: string;
+  goalId?: string;
+  deletedAt?: Date | null;
+};
 function row(value: unknown): Row | null {
   if (!value || typeof value !== 'object') return null;
   const result: Row = {};
-  for (const key of ['id', 'userId', 'accountId'] as const) {
+  for (const key of ['id', 'userId', 'accountId', 'goalId'] as const) {
     const field: unknown = Reflect.get(value, key);
     if (typeof field === 'string') result[key] = field;
   }
@@ -80,6 +89,14 @@ async function recipients(
   entity: SyncEntity,
   record: Row,
 ): Promise<string[]> {
+  if (entity === 'goals') return record.id ? goalRecipients(tx, record.id) : [];
+  if (entity === 'goal_allocations')
+    return [
+      ...new Set([
+        ...(record.userId ? [record.userId] : []),
+        ...(record.goalId ? await goalRecipients(tx, record.goalId) : []),
+      ]),
+    ];
   if (entity === 'accounts') return record.id ? accountRecipients(tx, record.id) : [];
   if (entity === 'transactions' || entity === 'investment_transactions')
     return record.accountId ? accountRecipients(tx, record.accountId) : [];
@@ -109,6 +126,7 @@ export function syncClient(
           { entity: SyncEntity; id: string; users: Set<string>; operation: string }
         >();
         const grantAccounts = new Map<string, Set<string>>();
+        const grantGoals = new Map<string, Set<string>>();
         async function rememberGrantAccounts(args: unknown) {
           const groupIds = new Set<string>();
           const accountIds = new Set<string>();
@@ -121,6 +139,16 @@ export function syncClient(
             }
           }
           identifiers(args);
+          if (groupIds.size && tx.goal) {
+            const goals = await tx.goal.findMany({
+              where: { groupId: { in: [...groupIds] } },
+              select: { id: true },
+            });
+            for (const goal of goals)
+              if (!grantGoals.has(goal.id)) {
+                grantGoals.set(goal.id, new Set(await goalRecipients(tx, goal.id)));
+              }
+          }
           if (groupIds.size) {
             const shares = await tx.groupAccount.findMany({
               where: { groupId: { in: [...groupIds] } },
@@ -138,7 +166,8 @@ export function syncClient(
             if (typeof property !== 'string' || !delegate || typeof delegate !== 'object')
               return delegate;
             const entity = syncEntities[property as keyof typeof syncEntities];
-            const grant = property === 'groupAccount' || property === 'userGroup';
+            const grant =
+              property === 'groupAccount' || property === 'userGroup' || property === 'group';
             if (!entity && !grant) return delegate;
             return new Proxy(delegate, {
               get(model, method) {
@@ -167,6 +196,10 @@ export function syncClient(
                     ? 'findUnique'
                     : 'findMany';
                   if (grant) {
+                    if (property === 'group' && where && typeof where === 'object') {
+                      const groupId: unknown = Reflect.get(where, 'id');
+                      if (typeof groupId === 'string') await rememberGrantAccounts({ groupId });
+                    }
                     // ID-only deletions/updates carry no account/group IDs in their input.
                     // Resolve the old grant before mutation so recipients receive tombstones.
                     if (where) {
@@ -254,6 +287,65 @@ export function syncClient(
           },
         });
         const result = await operation(observed);
+        // Refresh backing snapshots whenever cash or another allocation changes.
+        const backingAccounts = new Set<string>();
+        if (tx.goalAllocation) {
+          for (const change of changes.values()) {
+            if (change.entity === 'accounts') {
+              backingAccounts.add(change.id);
+              const account = await tx.account.findUnique({ where: { id: change.id } });
+              if (account?.parentAccountId) backingAccounts.add(account.parentAccountId);
+            }
+            if (change.entity === 'account_types') {
+              const accounts = await tx.account.findMany({
+                where: { accountTypeId: change.id },
+                select: { id: true },
+              });
+              for (const account of accounts) backingAccounts.add(account.id);
+            }
+            if (change.entity === 'obligations') {
+              const obligation = await tx.obligation.findUnique({ where: { id: change.id } });
+              if (obligation?.linkedAccountId) backingAccounts.add(obligation.linkedAccountId);
+            }
+            if (change.entity === 'goal_allocations') {
+              const allocation = await tx.goalAllocation.findUnique({ where: { id: change.id } });
+              if (allocation) backingAccounts.add(allocation.accountId);
+            }
+          }
+          if (backingAccounts.size) {
+            const allocations = await tx.goalAllocation.findMany({
+              where: { accountId: { in: [...backingAccounts] } },
+            });
+            for (const allocation of allocations) {
+              const users = [allocation.userId, ...(await goalRecipients(tx, allocation.goalId))];
+              await publish(
+                tx,
+                'goal_allocations',
+                allocation.id,
+                users,
+                allocation.deletedAt ? 'DELETE' : 'UPDATE',
+                deviceId,
+              );
+            }
+          }
+        }
+        for (const [id, before] of grantGoals) {
+          const after = new Set(await goalRecipients(tx, id));
+          const allocations = await tx.goalAllocation.findMany({ where: { goalId: id } });
+          for (const user of new Set([...before, ...after])) {
+            if (before.has(user) === after.has(user)) continue;
+            await publish(tx, 'goals', id, [user], after.has(user) ? 'CREATE' : 'DELETE', deviceId);
+            for (const allocation of allocations)
+              await publish(
+                tx,
+                'goal_allocations',
+                allocation.id,
+                [user],
+                after.has(user) || allocation.userId === user ? 'UPDATE' : 'DELETE',
+                deviceId,
+              );
+          }
+        }
         for (const change of changes.values()) {
           const record =
             change.entity === 'accounts'

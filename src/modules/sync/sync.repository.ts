@@ -35,6 +35,7 @@ import { SyncEntitySchema, type PullQuery, type PushItem } from './sync.schema.j
 import { InvestmentRecoveryRepository } from './investment-recovery.repository.js';
 import { ObligationRepository } from '../obligations/obligation.repository.js';
 import { toObligationDto, toObligationEventDto } from '../obligations/obligation.types.js';
+import { GoalRepository, goalAccess, toGoalDto, allocationDtos } from '../goals/goal.repository.js';
 
 function fail(statusCode: number, message: string): never {
   throw new AppError({ statusCode, code: 'SYNC_MUTATION_REJECTED', message });
@@ -76,6 +77,15 @@ export class SyncRepository extends InvestmentRecoveryRepository {
     id: string,
     tombstone = false,
   ): Promise<SyncData | null> {
+    if (entity === 'goals') {
+      const record = await tx.goal.findFirst({
+        where: { id, ...goalAccess(userId), ...(tombstone ? {} : { deletedAt: null }) },
+      });
+      return record ? toGoalDto(record) : null;
+    }
+    if (entity === 'goal_allocations') {
+      return (await allocationDtos(tx, userId, [id], tombstone))[0] ?? null;
+    }
     if (entity === 'obligations') {
       const record = await tx.obligation.findFirst({
         where: {
@@ -218,7 +228,13 @@ export class SyncRepository extends InvestmentRecoveryRepository {
     page: { entityType: string; entityId: string }[],
   ): Promise<Map<string, SyncData | null>> {
     const result = new Map<string, SyncData | null>();
-    for (const type of ['accounts', 'transactions', 'investment_transactions', 'obligations', 'obligation_events'] as const) {
+    for (const type of [
+      'accounts',
+      'transactions',
+      'investment_transactions',
+      'obligations',
+      'obligation_events',
+    ] as const) {
       const ids = [
         ...new Set(
           page.filter((event) => event.entityType === type).map((event) => event.entityId),
@@ -243,15 +259,32 @@ export class SyncRepository extends InvestmentRecoveryRepository {
         });
         for (const row of rows) result.set(`${type}:${row.id}`, toInvestmentDto(row));
       } else if (type === 'obligations') {
-        const rows = await tx.obligation.findMany({ where: { id: { in: ids }, userId, deletedAt: null, user: { status: 'ACTIVE', deletedAt: null } } });
+        const rows = await tx.obligation.findMany({
+          where: {
+            id: { in: ids },
+            userId,
+            deletedAt: null,
+            user: { status: 'ACTIVE', deletedAt: null },
+          },
+        });
         for (const row of rows) result.set(`${type}:${row.id}`, toObligationDto(row));
       } else {
-        const rows = await tx.obligationEvent.findMany({ where: { id: { in: ids }, userId, user: { status: 'ACTIVE', deletedAt: null } } });
+        const rows = await tx.obligationEvent.findMany({
+          where: { id: { in: ids }, userId, user: { status: 'ACTIVE', deletedAt: null } },
+        });
         for (const row of rows) result.set(`${type}:${row.id}`, toObligationEventDto(row));
       }
     }
     for (const event of page) {
-      if (['accounts', 'transactions', 'investment_transactions', 'obligations', 'obligation_events'].includes(event.entityType))
+      if (
+        [
+          'accounts',
+          'transactions',
+          'investment_transactions',
+          'obligations',
+          'obligation_events',
+        ].includes(event.entityType)
+      )
         continue;
       const key = `${event.entityType}:${event.entityId}`;
       if (!result.has(key)) {
@@ -386,6 +419,17 @@ export class SyncRepository extends InvestmentRecoveryRepository {
       const client = transactionClient(tx);
       let result: unknown;
       switch (item.entity_type) {
+        case 'goals':
+        case 'goal_allocations': {
+          await new GoalRepository(tx).write(
+            userId,
+            item.entity_type,
+            item.entity_id,
+            item.operation,
+            payload,
+          );
+          break;
+        }
         case 'account_types': {
           const repository = new PrismaAccountTypeRepository(client);
           result =

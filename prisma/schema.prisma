@@ -84,6 +84,7 @@ enum GroupRole {
 }
 
 model Group {
+  goals      Goal[]
   id         String                 @id @db.Uuid
   code       String                 @unique @db.VarChar(16)
   name       String                 @db.VarChar(120)
@@ -272,6 +273,7 @@ model AccountType {
 }
 
 model Account {
+  goalAllocations            GoalAllocation[]
   mappedObligations          Obligation[]             @relation("MappedObligationAccount")
   obligationCashEvents       ObligationEvent[]        @relation("ObligationCashAccount")
   recoveryInvestments        InvestmentRecovery[]     @relation("RecoveryInvestmentAccount")
@@ -425,6 +427,8 @@ model Transfer {
 }
 
 model User {
+  goals                         Goal[]
+  goalAllocations               GoalAllocation[]
   obligations                   Obligation[]
   obligationEvents              ObligationEvent[]
   investmentRecoveries          InvestmentRecovery[]    @relation("RecoveryOwner")
@@ -717,6 +721,49 @@ model InvestmentCancellationId {
 
   @@index([tradeId])
   @@map("investment_cancellation_ids")
+}
+
+model Goal {
+  id           String           @id @db.Uuid
+  userId       String           @map("user_id") @db.Uuid
+  groupId      String?          @map("group_id") @db.Uuid
+  name         String           @db.VarChar(120)
+  currency     String           @db.VarChar(3)
+  targetAmount Decimal          @map("target_amount") @db.Decimal(20, 2)
+  startDate    DateTime         @map("start_date") @db.Date
+  targetDate   DateTime         @map("target_date") @db.Date
+  status       String           @default("ACTIVE") @db.VarChar(16)
+  version      BigInt           @default(1)
+  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt    DateTime?        @map("deleted_at") @db.Timestamptz(3)
+  user         User             @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  group        Group?           @relation(fields: [groupId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  allocations  GoalAllocation[]
+
+  @@index([userId, deletedAt])
+  @@index([groupId, deletedAt])
+  @@map("goals")
+}
+
+model GoalAllocation {
+  id        String    @id @db.Uuid
+  goalId    String    @map("goal_id") @db.Uuid
+  userId    String    @map("user_id") @db.Uuid
+  accountId String    @map("account_id") @db.Uuid
+  amount    Decimal   @db.Decimal(20, 2)
+  version   BigInt    @default(1)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(3)
+  goal      Goal      @relation(fields: [goalId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  account   Account   @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@unique([goalId, accountId])
+  @@index([accountId, deletedAt, createdAt, id])
+  @@index([userId, deletedAt])
+  @@map("goal_allocations")
 }
 
 model Obligation {
