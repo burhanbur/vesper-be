@@ -43,8 +43,10 @@ import { registerReferenceOpenApi } from '../modules/references/reference.openap
 import { registerDashboardOpenApi } from '../modules/dashboard/dashboard.openapi.js';
 
 import { registerNetWorthOpenApi } from '../modules/net-worth/net-worth.openapi.js';
+import { registerAssetAllocationOpenApi } from '../modules/asset-allocation/asset-allocation.openapi.js';
 
 const registry = new OpenAPIRegistry();
+registerAssetAllocationOpenApi(registry);
 registerNetWorthOpenApi(registry);
 registerDashboardOpenApi(registry);
 registerReferenceOpenApi(registry);

@@ -80,6 +80,9 @@ export class PrismaNetWorthRepository {
           where: { id: { in: [...new Set(positions.map((p) => p.instrumentId))] } },
           select: {
             id: true,
+            code: true,
+            name: true,
+            type: true,
             currency: true,
             deletedAt: true,
             prices: {
@@ -116,8 +119,11 @@ export class PrismaNetWorthRepository {
 }
 type CurrentSource = Awaited<ReturnType<PrismaNetWorthRepository['read']>>;
 // Optional only for legacy source adapters; absence must keep the result partial.
-export type NetWorthSource = Omit<CurrentSource, 'obligations'> & {
+type SourceInstrument = CurrentSource['instruments'][number];
+export type NetWorthSource = Omit<CurrentSource, 'obligations' | 'instruments'> & {
   obligations?: CurrentSource['obligations'];
+  instruments: (Omit<SourceInstrument, 'code' | 'name' | 'type'> &
+    Partial<Pick<SourceInstrument, 'code' | 'name' | 'type'>>)[];
 };
 export interface NetWorthRepository {
   read(userId: string, currency: string, date: string): Promise<NetWorthSource>;

@@ -13,6 +13,8 @@ import { PatchProfileSchema } from '../profiles/profile.schema.js';
 import { CreateTransferSchema } from '../transfers/transfer.schema.js';
 import { CreateInvestmentSchema } from '../investments/investment.schema.js';
 import { ObligationCommandSchema } from '../obligations/obligation.schema.js';
+import { EmergencyPlanInputSchema } from '../emergency-funds/emergency-plan.schema.js';
+import { CreateBillSchema, UpdateBillSchema, BillCommandSchema } from '../bills/bill.schema.js';
 import {
   CreateGoalSchema,
   UpdateGoalSchema,
@@ -52,6 +54,9 @@ export const SyncEntitySchema = z.enum([
   'obligation_events',
   'goals',
   'goal_allocations',
+  'emergency_plans',
+  'bill_schedules',
+  'bill_occurrences',
 ]);
 export const PullQuerySchema = z.strictObject({
   device_id: z.uuid(),
@@ -71,11 +76,37 @@ const deletions = z.strictObject({
     'investment_transactions',
     'obligations',
     'obligation_events',
+    'bill_occurrences',
   ]),
   operation: z.literal('DELETE'),
   payload: z.null(),
 });
 export const PushItemSchema = z.union([
+  z.strictObject({
+    ...base,
+    entity_type: z.literal('bill_schedules'),
+    operation: z.literal('CREATE'),
+    payload: CreateBillSchema,
+  }),
+  z.strictObject({
+    ...base,
+    entity_type: z.literal('bill_schedules'),
+    operation: z.literal('UPDATE'),
+    payload: UpdateBillSchema,
+  }),
+  z.strictObject({
+    entity_id: z.uuid(),
+    client_version: z.literal('0'),
+    entity_type: z.enum(['bill_commands', 'bill_cancellations']),
+    operation: z.literal('CREATE'),
+    payload: BillCommandSchema,
+  }),
+  z.strictObject({
+    ...base,
+    entity_type: z.literal('emergency_plans'),
+    operation: z.enum(['CREATE', 'UPDATE']),
+    payload: EmergencyPlanInputSchema,
+  }),
   z.strictObject({
     ...base,
     entity_type: z.literal('goals'),

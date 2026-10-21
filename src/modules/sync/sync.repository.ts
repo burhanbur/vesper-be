@@ -36,6 +36,11 @@ import { InvestmentRecoveryRepository } from './investment-recovery.repository.j
 import { ObligationRepository } from '../obligations/obligation.repository.js';
 import { toObligationDto, toObligationEventDto } from '../obligations/obligation.types.js';
 import { GoalRepository, goalAccess, toGoalDto, allocationDtos } from '../goals/goal.repository.js';
+import {
+  EmergencyPlanRepository,
+  toEmergencyPlanDto,
+} from '../emergency-funds/emergency-plan.repository.js';
+import { BillRepository, toBillDto, toBillOccurrenceDto } from '../bills/bill.repository.js';
 
 function fail(statusCode: number, message: string): never {
   throw new AppError({ statusCode, code: 'SYNC_MUTATION_REJECTED', message });
@@ -77,6 +82,35 @@ export class SyncRepository extends InvestmentRecoveryRepository {
     id: string,
     tombstone = false,
   ): Promise<SyncData | null> {
+    if (entity === 'bill_schedules') {
+      const record = await tx.billSchedule.findFirst({
+        where: {
+          id,
+          userId,
+          ...(tombstone ? {} : { deletedAt: null }),
+          user: { status: 'ACTIVE', deletedAt: null },
+        },
+      });
+      return record ? toBillDto(record) : null;
+    }
+    if (entity === 'bill_occurrences') {
+      const record = await tx.billOccurrence.findFirst({
+        where: { id, userId, user: { status: 'ACTIVE', deletedAt: null } },
+        include: { bill: true, transaction: true, obligationEvent: true },
+      });
+      return record ? toBillOccurrenceDto(record) : null;
+    }
+    if (entity === 'emergency_plans') {
+      const record = await tx.emergencyPlan.findFirst({
+        where: {
+          id,
+          userId,
+          user: { status: 'ACTIVE', deletedAt: null },
+          ...(tombstone ? {} : { deletedAt: null }),
+        },
+      });
+      return record ? toEmergencyPlanDto(record) : null;
+    }
     if (entity === 'goals') {
       const record = await tx.goal.findFirst({
         where: { id, ...goalAccess(userId), ...(tombstone ? {} : { deletedAt: null }) },
@@ -305,6 +339,14 @@ export class SyncRepository extends InvestmentRecoveryRepository {
   async apply(userId: string, deviceId: string, item: PushItem) {
     return syncClient(this.client, deviceId).$transaction(async (tx) => {
       await this.device(tx, userId, deviceId);
+      if (item.entity_type === 'bill_commands' || item.entity_type === 'bill_cancellations') {
+        return new BillRepository(tx).command(
+          userId,
+          item.entity_id,
+          item.payload,
+          item.entity_type === 'bill_cancellations',
+        );
+      }
       if (item.entity_type === 'obligation_cancellations') {
         const result = await new ObligationRepository(transactionClient(tx)).cancel(
           userId,
@@ -327,6 +369,18 @@ export class SyncRepository extends InvestmentRecoveryRepository {
               .filter(([key, value]) => key.endsWith('transaction_id') && typeof value === 'string')
               .map(([, value]) => String(value))
           : [];
+      if (
+        tx.billCommand &&
+        (await tx.billCommand.count({
+          where: {
+            OR: [
+              { id: { in: [item.entity_id, ...payloadIds] } },
+              { ledgerId: { in: [item.entity_id, ...payloadIds] } },
+            ],
+          },
+        }))
+      )
+        fail(409, 'ID sudah digunakan perintah tagihan.');
       if (
         await tx.obligationCommandId.count({
           where: { id: { in: [item.entity_id, ...payloadIds] } },
@@ -370,6 +424,12 @@ export class SyncRepository extends InvestmentRecoveryRepository {
         before &&
         payload &&
         Object.entries(payload).every(([key, value]) => {
+          if (
+            item.entity_type === 'emergency_plans' &&
+            ['account_ids', 'category_ids'].includes(key)
+          ) {
+            return JSON.stringify(before[key]) === JSON.stringify(value);
+          }
           if (key === 'amount' && typeof value === 'string' && typeof before.amount === 'string')
             return new Prisma.Decimal(value).equals(before.amount);
           if (
@@ -419,6 +479,19 @@ export class SyncRepository extends InvestmentRecoveryRepository {
       const client = transactionClient(tx);
       let result: unknown;
       switch (item.entity_type) {
+        case 'bill_schedules': {
+          await new BillRepository(tx).schedule(userId, item.entity_id, item.operation, payload);
+          break;
+        }
+        case 'emergency_plans': {
+          await new EmergencyPlanRepository(tx).write(
+            userId,
+            item.entity_id,
+            item.operation,
+            payload,
+          );
+          break;
+        }
         case 'goals':
         case 'goal_allocations': {
           await new GoalRepository(tx).write(

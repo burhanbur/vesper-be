@@ -22,6 +22,9 @@ export const syncEntities = {
   obligationEvent: 'obligation_events',
   goal: 'goals',
   goalAllocation: 'goal_allocations',
+  emergencyPlan: 'emergency_plans',
+  billSchedule: 'bill_schedules',
+  billOccurrence: 'bill_occurrences',
 } as const;
 export type SyncEntity = (typeof syncEntities)[keyof typeof syncEntities];
 
@@ -101,7 +104,14 @@ async function recipients(
   if (entity === 'transactions' || entity === 'investment_transactions')
     return record.accountId ? accountRecipients(tx, record.accountId) : [];
   if (!record.userId) return [];
-  if (entity === 'user_profiles' || entity === 'obligations' || entity === 'obligation_events')
+  if (
+    entity === 'user_profiles' ||
+    entity === 'obligations' ||
+    entity === 'obligation_events' ||
+    entity === 'emergency_plans' ||
+    entity === 'bill_schedules' ||
+    entity === 'bill_occurrences'
+  )
     return [record.userId];
   return metadataRecipients(tx, record.userId, entity === 'account_types' ? record.id : undefined);
 }
@@ -287,6 +297,34 @@ export function syncClient(
           },
         });
         const result = await operation(observed);
+        if (tx.billOccurrence) {
+          const transactionIds = [...changes.values()]
+            .filter((c) => c.entity === 'transactions')
+            .map((c) => c.id);
+          const eventIds = [...changes.values()]
+            .filter((c) => c.entity === 'obligation_events')
+            .map((c) => c.id);
+          if (transactionIds.length || eventIds.length) {
+            const affected = await tx.billOccurrence.findMany({
+              where: {
+                OR: [
+                  { transactionId: { in: transactionIds } },
+                  { obligationEventId: { in: eventIds } },
+                ],
+              },
+              select: { id: true, userId: true },
+            });
+            for (const occurrence of affected)
+              await publish(
+                tx,
+                'bill_occurrences',
+                occurrence.id,
+                [occurrence.userId],
+                'UPDATE',
+                deviceId,
+              );
+          }
+        }
         // Refresh backing snapshots whenever cash or another allocation changes.
         const backingAccounts = new Set<string>();
         if (tx.goalAllocation) {

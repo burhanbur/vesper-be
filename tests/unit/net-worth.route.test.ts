@@ -32,9 +32,41 @@ function fixture() {
     createNetWorthRouter({ read, findCapture, capture }, {} as AuthService),
   );
   app.use(errorHandler);
-  return { app, read };
+  return { app, read, capture };
 }
 describe('net worth HTTP', () => {
+  it('allocation authenticates first, uses only the principal and never captures financial history', async () => {
+    const { app, read, capture } = fixture();
+    await request(app).get('/api/v1/net-worth/allocation').expect(401);
+    expect(read).not.toHaveBeenCalled();
+    const response = await request(app)
+      .get('/api/v1/net-worth/allocation')
+      .set('Authorization', 'Bearer session')
+      .expect(200)
+      .expect('Cache-Control', 'no-store');
+    expect(response.body.data).toMatchObject({
+      scope: 'owner',
+      currency: 'IDR',
+      status: 'partial',
+      total_assets: null,
+    });
+    expect(read).toHaveBeenCalledWith('owner', 'IDR', expect.any(String));
+    expect(capture).not.toHaveBeenCalled();
+  });
+  it.each([
+    'scope=shared',
+    'user_id=other',
+    'currency=USD',
+    'date=2026-10-21',
+    'currency=IDR&currency=USD',
+  ])('allocation rejects unsupported scope/query %s', async (query) => {
+    const { app, read } = fixture();
+    await request(app)
+      .get('/api/v1/net-worth/allocation?' + query)
+      .set('Authorization', 'Bearer session')
+      .expect(422);
+    expect(read).not.toHaveBeenCalled();
+  });
   it('requires authentication before accessing data', async () => {
     const { app, read } = fixture();
     await request(app).get('/api/v1/net-worth/snapshots').expect(401);

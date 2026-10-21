@@ -7,6 +7,9 @@ import type { AuthPrincipal } from '../auth/auth.types.js';
 import type { NetWorthRepository } from './net-worth.repository.js';
 import { NetWorthQuerySchema, type NetWorthQuery } from './net-worth.schema.js';
 import { NetWorthService } from './net-worth.service.js';
+import { AllocationQuerySchema } from '../asset-allocation/asset-allocation.schema.js';
+import { AssetAllocationService } from '../asset-allocation/asset-allocation.service.js';
+import { createAllocationHandler } from '../asset-allocation/asset-allocation.controller.js';
 
 export function createNetWorthRouter(
   repository: NetWorthRepository,
@@ -22,6 +25,11 @@ export function createNetWorthRouter(
     sendSuccess(request, response, { data, message: 'Snapshot kekayaan berhasil diambil.' });
   };
   router.use(createRequireAuthentication(authService));
+  router.get(
+    '/allocation',
+    validateRequest({ query: AllocationQuerySchema }),
+    createAllocationHandler(new AssetAllocationService(repository)),
+  );
   router.get('/snapshots', validateRequest({ query: NetWorthQuerySchema }), snapshot);
   return router;
 }

@@ -1,415 +1,1139 @@
+// PostgreSQL schema after all 26 repository migrations through 20261021030000_bills.
+// Source: prisma/schema.prisma and prisma/migrations; verified against an isolated migrated PostgreSQL catalog.
+// Updated: 2026-10-21. This documents the target schema, not deployment state of a daily database.
 Project Vesper {
   database_type: 'PostgreSQL'
   note: '''
-    Vesper — Aplikasi pencatatan keuangan & wealth management untuk individu dan grup (pasutri/keluarga).
-    Stack: Flutter + ExpressJs + PostgreSQL + Redis. Arsitektur offline-first.
+    Personal and household finance, offline-first Flutter + Express + PostgreSQL + Redis.
+    PostgreSQL tables only; mobile sync_queue and Redis sessions are not PostgreSQL entities.
+    auth_sessions/auth_refresh_tokens were removed by the Redis migration.
+    UUIDs are application-generated unless a database default is explicitly shown.
+    updated_at has no automatic PostgreSQL ON UPDATE behavior; application/Prisma writers maintain it.
+    Sync pull entities: account_types, accounts, categories, transactions, user_profiles, investment_transactions,
+    obligations, obligation_events, goals, goal_allocations, emergency_plans, bill_schedules, bill_occurrences.
+    Command/cancellation envelopes are not additional sync pull tables.
+    Partial/expression indexes, check constraints and trigger DDL appear in table notes;
+    ordinary indexes and inline column references describe the schema. SQL migrations remain authoritative
+    for trigger function bodies, immutable-history enforcement and migration data backfills.
+    Foreign-key actions and the composite household-category constraint are preserved in table notes.
+  '''
+}
 
-    Scope sync offline (device <-> server): transactions, account_types, accounts, categories, user_profiles.
-    CATATAN: instruments/instrument_prices/investment_transactions/portfolio_daily_snapshots BELUM
-    masuk scope sync offline di atas — perlu diputuskan sebelum implementasi sync engine.
+enum UserStatus {
+  "ACTIVE"
+  "INACTIVE"
+  "SUSPENDED"
+}
+
+enum account_type_category {
+  "CASH"
+  "INVESTMENT"
+}
+
+enum category_type {
+  "INCOME"
+  "EXPENSE"
+}
+
+enum group_role {
+  "OWNER"
+  "MEMBER"
+}
+
+enum instrument_type {
+  "STOCK"
+  "MUTUAL_FUND"
+  "CRYPTO"
+  "BOND"
+  "GOLD"
+  "OTHER"
+}
+
+enum investment_transaction_type {
+  "BUY"
+  "SELL"
+  "DIVIDEND"
+}
+
+enum notification_type {
+  "info"
+  "error"
+  "warning"
+}
+
+enum period_type {
+  "MONTHLY"
+  "WEEKLY"
+  "DAILY"
+  "ANNUAL"
+}
+
+enum profile_gender {
+  "Laki-laki"
+  "Perempuan"
+}
+
+enum transaction_type {
+  "INCOME"
+  "EXPENSE"
+  "TRANSFER"
+}
+
+//////////////////////////////////////////////////////////////
+// AUTH AND RBAC
+//////////////////////////////////////////////////////////////
+
+table users {
+  id uuid [pk, not null]
+  name varchar(120) [not null]
+  email varchar(255) [not null]
+  password_hash varchar(255) [not null]
+  status "UserStatus" [not null, default: `'ACTIVE'::"UserStatus"`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+  created_by uuid [null]
+  updated_by uuid [null]
+  deleted_by uuid [null]
+  username varchar(64) [null]
+
+  indexes {
+    (deleted_at) [name: 'users_deleted_at_idx']
+    (email) [name: 'users_email_key', unique]
+    (status) [name: 'users_status_idx']
+    (username) [name: 'users_username_key', unique]
+  }
+}
+
+table roles {
+  id uuid [pk, not null]
+  code varchar(32) [not null]
+  name varchar(120) [not null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+  created_by uuid [null]
+  updated_by uuid [null]
+  deleted_by uuid [null]
+
+  indexes {
+    (code) [name: 'roles_code_key', unique]
+    (deleted_at) [name: 'roles_deleted_at_idx']
+  }
+}
+
+table routes {
+  id uuid [pk, not null]
+  name varchar(160) [not null]
+  method varchar(16) [not null]
+  module varchar(120) [null]
+  description varchar(255) [null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+  created_by uuid [null]
+  updated_by uuid [null]
+  deleted_by uuid [null]
+
+  indexes {
+    (deleted_at) [name: 'routes_deleted_at_idx']
+    (module) [name: 'routes_module_idx']
+    (name) [name: 'routes_name_key', unique]
+  }
+}
+
+table user_roles {
+  role_id uuid [not null, ref: > roles.id]
+  user_id uuid [not null, ref: > users.id]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  created_by uuid [null]
+
+  indexes {
+    (role_id, user_id) [name: 'user_roles_pkey', pk]
+    (user_id) [name: 'user_roles_user_id_idx']
+  }
+
+  note: '''
+    user_roles_role_id_fkey: delete: cascade, update: cascade.
+    user_roles_user_id_fkey: delete: cascade, update: cascade.
+  '''
+}
+
+table role_permissions {
+  role_id uuid [not null, ref: > roles.id]
+  route_id uuid [not null, ref: > routes.id]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  created_by uuid [null]
+
+  indexes {
+    (role_id, route_id) [name: 'role_permissions_pkey', pk]
+    (route_id) [name: 'role_permissions_route_id_idx']
+  }
+
+  note: '''
+    role_permissions_role_id_fkey: delete: cascade, update: cascade.
+    role_permissions_route_id_fkey: delete: cascade, update: cascade.
+  '''
+}
+
+table api_keys {
+  id uuid [pk, not null]
+  name varchar(120) [not null]
+  key varchar(64) [not null]
+  description text [null]
+  application varchar(120) [null]
+  ip_whitelist jsonb [null]
+  permissions jsonb [null]
+  is_active boolean [not null, default: `true`]
+  rate_limit integer [not null, default: `60`]
+  last_used_at timestamptz(3) [null]
+  expires_at timestamptz(3) [null]
+  created_by uuid [null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_by uuid [null]
+  updated_at timestamptz(3) [not null]
+
+  indexes {
+    (key) [name: 'api_keys_key_key', unique]
+    (expires_at) [name: 'idx_api_keys_expires_at']
+    (is_active) [name: 'idx_api_keys_is_active']
+  }
+}
+
+table stored_files {
+  id uuid [pk, not null]
+  storage_key varchar(512) [not null]
+  original_name varchar(255) [not null]
+  mime_type varchar(127) [not null]
+  extension varchar(16) [not null]
+  size bigint [not null]
+  checksum char(64) [not null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+  created_by uuid [null]
+  deleted_by uuid [null]
+
+  indexes {
+    (created_at) [name: 'stored_files_created_at_idx']
+    (deleted_at) [name: 'stored_files_deleted_at_idx']
+    (storage_key) [name: 'stored_files_storage_key_key', unique]
+  }
+}
+
+//////////////////////////////////////////////////////////////
+// PROFILES AND SYNC
+//////////////////////////////////////////////////////////////
+
+table user_profiles {
+  user_id uuid [pk, not null, ref: - users.id]
+  full_name varchar(120) [null]
+  phone_number varchar(32) [null]
+  gender profile_gender [null]
+  photo varchar(255) [null]
+  base_currency varchar(3) [not null, default: `'IDR'::character varying`]
+  theme varchar(16) [not null, default: `'system'::character varying`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (deleted_at) [name: 'user_profiles_deleted_at_idx']
+  }
+
+  note: '''
+    user_profiles_user_id_fkey: delete: restrict, update: cascade.
+    user_profiles_base_currency_check: CHECK (((base_currency)::text ~ '^[A-Z]{3}$'::text))
+    user_profiles_theme_check: CHECK (((theme)::text = ANY ((ARRAY['light'::character varying, 'dark'::character varying, 'system'::character varying])::text[])))
+  '''
+}
+
+table devices {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  name varchar(120) [not null]
+  platform varchar(16) [not null]
+  app_version varchar(64) [not null]
+  last_sync_version bigint [not null, default: `0`]
+  last_sync_at timestamptz(3) [null]
+  last_seen_at timestamptz(3) [null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+
+  indexes {
+    (user_id, created_at, id) [name: 'devices_user_id_created_at_id_idx']
+  }
+
+  note: '''
+    devices_user_id_fkey: delete: restrict, update: cascade.
+    devices_last_sync_version_check: CHECK ((last_sync_version >= 0))
+    devices_platform_check: CHECK (((platform)::text = ANY ((ARRAY['Web'::character varying, 'iOS'::character varying, 'Android'::character varying])::text[])))
+  '''
+}
+
+table sync_changes {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  device_id uuid [null, ref: > devices.id]
+  entity_type varchar(32) [not null]
+  entity_id uuid [not null]
+  operation varchar(8) [not null]
+  version bigint [not null, increment, note: 'GENERATED BY DEFAULT AS IDENTITY']
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+
+  indexes {
+    (entity_type, entity_id, device_id) [name: 'sync_changes_entity_type_entity_id_device_id_idx']
+    (user_id, version) [name: 'sync_changes_user_id_version_idx']
+    (version) [name: 'sync_changes_version_key', unique]
+  }
+
+  note: '''
+    sync_changes_device_id_fkey: delete: set null, update: cascade.
+    sync_changes_user_id_fkey: delete: restrict, update: cascade.
+    sync_changes_entity_check: CHECK (((entity_type)::text = ANY ((ARRAY['account_types'::character varying, 'accounts'::character varying, 'categories'::character varying, 'transactions'::character varying, 'user_profiles'::character varying, 'investment_transactions'::character varying, 'obligations'::character varying, 'obligation_events'::character varying, 'goals'::character varying, 'goal_allocations'::character varying, 'emergency_plans'::character varying, 'bill_schedules'::character varying, 'bill_occurrences'::character varying])::text[])))
+    sync_changes_operation_check: CHECK (((operation)::text = ANY ((ARRAY['CREATE'::character varying, 'UPDATE'::character varying, 'DELETE'::character varying])::text[])))
   '''
 }
 
 //////////////////////////////////////////////////////////////
-// AUTH & RBAC
+// REFERENCE DATA
 //////////////////////////////////////////////////////////////
-table users {
-  id uuid [pk]
-  username varchar [unique]
-  email varchar [unique]
-  email_verified_at timestamptz
-  is_active boolean
-  last_login_at timestamptz
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-  deleted_at timestamptz
-}
 
-table user_roles {
-  user_id uuid [pk, ref: > users.id]
-  role_id uuid [pk, ref: > roles.id]
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-}
-
-table roles {
-  id uuid [pk]
-  name varchar // admin, user
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-  deleted_at timestamptz
-}
-
-table routes {
-  id uuid [pk]
-  name varchar
-  method varchar
-  module varchar // group
-  description text
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-}
-
-table role_permissions {
-  route_id uuid [pk, ref: > routes.id]
-  role_id uuid [pk, ref: > roles.id]
-  created_by bigint
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-}
-
-table api_keys {
-  id uuid [pk]
-  name varchar
-  key varchar(64) [unique]
-  description text
-  application varchar
-  ip_whitelist jsonb
-  permissions jsonb
-  is_active boolean [default: true]
-  rate_limit int [default: 60]
-  last_used_at timestamptz
-  expires_at timestamptz
-  created_by uuid
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_by uuid
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+table ref_account_types {
+  id uuid [pk, not null]
+  name varchar(120) [not null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
 
   indexes {
-    (key) [name: 'idx_key']
-    (is_active) [name: 'idx_is_active']
-    (expires_at) [name: 'idx_expires_at']
+    (name) [name: 'ref_account_types_name_key', unique]
+  }
+}
+
+table ref_categories {
+  id uuid [pk, not null]
+  name varchar(120) [not null]
+  type category_type [not null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+
+  indexes {
+    (name, type) [name: 'ref_categories_name_type_key', unique]
   }
 }
 
 //////////////////////////////////////////////////////////////
-// USER PROFILE
+// CORE FINANCE
 //////////////////////////////////////////////////////////////
-table user_profiles {
-  user_id uuid [pk, ref: > users.id]
-  full_name varchar
-  phone_number varchar
-  gender enum('Laki-laki', 'Perempuan')
-  photo varchar [default: null]
-  base_currency varchar [default: 'IDR']
-  theme varchar
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-  deleted_at timestamptz
-}
 
-//////////////////////////////////////////////////////////////
-// SOFT REF TABLES (referensi global, bukan milik user tertentu)
-//////////////////////////////////////////////////////////////
-table ref_categories {
-  id uuid [pk]
-  name varchar // Gaji, Side Job, Bonus, Deviden, Lainnya
-  type enum('INCOME', 'EXPENSE')
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-}
-
-table ref_account_types {
-  id uuid [pk]
-  name varchar // Cash, Rekening Bank, E-wallet, Hutang, Reksadana, Saham, Crypto
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-}
-
-//////////////////////////////////////////////////////////////
-// NOTIFICATIONS
-//////////////////////////////////////////////////////////////
-table notifications {
-  id uuid [pk]
-  user_id uuid [ref: > users.id]
-  type enum('info', 'error', 'warning')
-  title varchar [not null]
-  body text [not null]
-  metadata jsonb
-  is_read boolean [default: false]
-  read_at timestamptz
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-}
-
-//////////////////////////////////////////////////////////////
-// OFFLINE-FIRST SYNC ENGINE
-//////////////////////////////////////////////////////////////
-table devices {
-  id uuid [pk]
-  user_id uuid [ref: > users.id]
-  name varchar // iPhone 11, Samsung Galaxy S10 5G, Google Chrome, dll
-  platform varchar // Web, iOS, Android
-  app_version varchar
-  last_sync_version bigint [default: 0]
-  last_sync_at timestamptz
-  last_seen_at timestamptz
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-}
-
-table sync_changes {
-  id uuid [pk]
-  user_id uuid [ref: > users.id] // utk shared/group entity, 1 perubahan bisa fan-out jadi >1 row (1 per anggota grup)
-  device_id uuid [ref: > devices.id]
-  entity_type varchar
-  entity_id uuid
-  operation varchar // CREATE, UPDATE, DELETE
-  version bigint
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-}
-
-// KHUSUS UNTUK DATABASE LOCAL FLUTTER, BUKAN UNTUK POSTGRESQL
-table sync_queue {
-  id uuid [pk]
-  entity_type varchar // transactions, account_types, accounts, categories, user_profiles
-  entity_id uuid
-  operation enum('CREATE', 'UPDATE', 'DELETE')
-  payload jsonb
-  status enum('PENDING', 'SYNCING', 'FAILED', 'SYNCED')
-  retry_count int [default: 0]
-  last_error text
-  created_at timestamptz
-  updated_at timestamptz
-}
-
-//////////////////////////////////////////////////////////////
-// CORE FINANCE: ACCOUNTS, CATEGORIES, TRANSACTIONS
-//////////////////////////////////////////////////////////////
 table account_types {
-  id uuid [pk]
-  user_id uuid [ref: > users.id]
-  name varchar
-  category enum('CASH', 'INVESTMENT') [default: 'CASH']
-  version bigint
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-  deleted_at timestamptz
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  name varchar(120) [not null]
+  category account_type_category [not null, default: `'CASH'::account_type_category`]
+  version bigint [not null, default: `1`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (user_id, deleted_at, category) [name: 'account_types_user_id_deleted_at_category_idx']
+    (user_id, deleted_at, created_at, id) [name: 'account_types_user_id_deleted_at_created_at_id_idx']
+  }
+
+  note: '''
+    account_types_user_id_fkey: delete: restrict, update: cascade.
+    account_types_version_positive: CHECK ((version > 0))
+  '''
 }
 
 table categories {
-  id uuid [pk]
-  user_id uuid [ref: > users.id]
-  type enum('EXPENSE', 'INCOME')
-  name varchar
-  version bigint
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-  deleted_at timestamptz
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  type category_type [not null]
+  name varchar(120) [not null]
+  version bigint [not null, default: `1`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (user_id, deleted_at, created_at, id) [name: 'categories_user_id_deleted_at_created_at_id_idx']
+    (user_id, deleted_at, type) [name: 'categories_user_id_deleted_at_type_idx']
+  }
+
+  note: '''
+    categories_user_id_fkey: delete: restrict, update: cascade.
+    categories_version_positive: CHECK ((version > 0))
+  '''
 }
 
 table accounts {
-  id uuid [pk]
-  user_id uuid [ref: > users.id] // redundan scr normalisasi (bisa diturunin dari account_types.user_id), dipertahankan demi performa query
-  account_type_id uuid [ref: > account_types.id]
-  parent_account_id uuid [null, ref: > accounts.id] // nesting akun, mis. Bank Jago > pocket Main/Sedekah/dst
-  icon varchar
-  name varchar
-  currency varchar [default: 'IDR']
-  balance decimal(20, 2) // selalu di-recompute server dari SUM(transactions), jangan percaya nilai dari client
-  description text
-  is_visible boolean [default: true]
-  is_include_total boolean [default: true] // parent node dgn children biasanya false, biar ga double-count
-  sequence_order bigint
-  version bigint [not null, default: 1] // additive PRD optimistic locking; not a global sync cursor
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-  deleted_at timestamptz
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  account_type_id uuid [not null, ref: > account_types.id]
+  parent_account_id uuid [null, ref: > accounts.id]
+  icon varchar(120) [null]
+  name varchar(120) [not null]
+  currency varchar(3) [not null, default: `'IDR'::character varying`]
+  balance numeric(20,2) [not null, default: `0`]
+  description text [null]
+  is_visible boolean [not null, default: `true`]
+  is_include_total boolean [not null, default: `true`]
+  sequence_order bigint [not null, default: `0`]
+  version bigint [not null, default: `1`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (account_type_id) [name: 'accounts_account_type_id_idx']
+    (parent_account_id, deleted_at) [name: 'accounts_parent_account_id_deleted_at_idx']
+    (user_id, deleted_at, account_type_id) [name: 'accounts_user_id_deleted_at_account_type_id_idx']
+    (user_id, deleted_at, created_at, id) [name: 'accounts_user_id_deleted_at_created_at_id_idx']
+    (user_id, deleted_at, is_visible) [name: 'accounts_user_id_deleted_at_is_visible_idx']
+  }
+
+  note: '''
+    accounts_account_type_id_fkey: delete: restrict, update: cascade.
+    accounts_parent_account_id_fkey: delete: restrict, update: cascade.
+    accounts_user_id_fkey: delete: restrict, update: cascade.
+    accounts_balance_finite: CHECK (((balance <> 'NaN'::numeric) AND (balance > '-Infinity'::numeric) AND (balance < 'Infinity'::numeric)))
+    accounts_currency_idr: CHECK (((currency)::text = 'IDR'::text))
+    accounts_name_nonempty: CHECK ((length(btrim((name)::text)) > 0))
+    accounts_no_self_parent: CHECK (((parent_account_id IS NULL) OR (parent_account_id <> id)))
+    accounts_sequence_order_nonnegative: CHECK ((sequence_order >= 0))
+    accounts_version_positive: CHECK ((version > 0))
+  '''
 }
 
 table transfers {
-  id uuid [pk]
-  from_account_id uuid [ref: > accounts.id]
-  to_account_id uuid [ref: > accounts.id]
-  amount decimal(20, 2)
-  transacted_at timestamptz [not null]
-  description text
-  created_by uuid [ref: > users.id]
-  updated_by uuid [ref: > users.id]
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-  deleted_at timestamptz
-}
-
-// kalau transfer, berarti create 2 row transactions (debit & kredit)
-table transactions {
-  id uuid [pk]
-  account_id uuid [ref: > accounts.id]
-  category_id uuid [null, ref: > categories.id] // kategori ngikut pemilik account, bukan created_by
-  transfer_id uuid [null] // reserved; PostgreSQL FK deferred until Transfers 5.6 exists
-  type enum('INCOME', 'EXPENSE', 'TRANSFER')
-  amount decimal(20, 2) [not null]
-  transacted_at timestamptz [not null]
-  description text
-  version bigint [not null, default: 1]
-  created_by uuid [not null, ref: > users.id] // actor, owner resolved through accounts/account_types
+  id uuid [pk, not null]
+  from_account_id uuid [not null, ref: > accounts.id]
+  to_account_id uuid [not null, ref: > accounts.id]
+  amount numeric(20,2) [not null]
+  transacted_at timestamptz(3) [not null]
+  description text [null]
+  version bigint [not null, default: `1`]
+  created_by uuid [not null, ref: > users.id]
   updated_by uuid [not null, ref: > users.id]
   deleted_by uuid [null, ref: > users.id]
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-  deleted_at timestamptz
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (created_by) [name: 'transfers_created_by_idx']
+    (deleted_by) [name: 'transfers_deleted_by_idx']
+    (from_account_id, deleted_at, transacted_at, id) [name: 'transfers_from_account_id_deleted_at_transacted_at_id_idx']
+    (to_account_id, deleted_at, transacted_at, id) [name: 'transfers_to_account_id_deleted_at_transacted_at_id_idx']
+    (updated_by) [name: 'transfers_updated_by_idx']
+  }
+
+  note: '''
+    transfers_created_by_fkey: delete: restrict, update: cascade.
+    transfers_deleted_by_fkey: delete: restrict, update: cascade.
+    transfers_from_account_id_fkey: delete: restrict, update: cascade.
+    transfers_to_account_id_fkey: delete: restrict, update: cascade.
+    transfers_updated_by_fkey: delete: restrict, update: cascade.
+    transfers_accounts_distinct: CHECK ((from_account_id <> to_account_id))
+    transfers_amount_positive_finite: CHECK (((amount > (0)::numeric) AND (amount <> 'NaN'::numeric) AND (amount <= 999999999999999999.99)))
+    transfers_description_valid: CHECK (((description IS NULL) OR ((length(btrim(description)) >= 1) AND (length(btrim(description)) <= 5000))))
+    transfers_version_positive: CHECK ((version > 0))
+    CREATE TRIGGER transfer_cancellation_guard BEFORE INSERT OR UPDATE OF id ON public.transfers FOR EACH ROW EXECUTE FUNCTION guard_investment_cancellation();
+    CREATE TRIGGER transfer_obligation_guard BEFORE INSERT OR UPDATE OF id ON public.transfers FOR EACH ROW EXECUTE FUNCTION guard_obligation_command_id();
+  '''
 }
 
-//////////////////////////////////////////////////////////////
-// BUDGETING
-//////////////////////////////////////////////////////////////
+table transactions {
+  id uuid [pk, not null]
+  account_id uuid [not null, ref: > accounts.id]
+  category_id uuid [null, ref: > categories.id]
+  transfer_id uuid [null, ref: > transfers.id]
+  type transaction_type [not null]
+  amount numeric(20,2) [not null]
+  transacted_at timestamptz(3) [not null]
+  description text [null]
+  version bigint [not null, default: `1`]
+  created_by uuid [not null, ref: > users.id]
+  updated_by uuid [not null, ref: > users.id]
+  deleted_by uuid [null, ref: > users.id]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+  obligation_event_id uuid [null, ref: > obligation_events.id]
+  bill_command_id uuid [null, ref: - bill_commands.id]
+
+  indexes {
+    (account_id, deleted_at, created_at, id) [name: 'transactions_account_id_deleted_at_created_at_id_idx']
+    (account_id, deleted_at, transacted_at, id) [name: 'transactions_account_id_deleted_at_transacted_at_id_idx']
+    (account_id, deleted_at, type, transacted_at, id) [name: 'transactions_account_id_deleted_at_type_transacted_at_id_idx']
+    (bill_command_id) [name: 'transactions_bill_command_id_key', unique]
+    (category_id, deleted_at, transacted_at, id) [name: 'transactions_category_id_deleted_at_transacted_at_id_idx']
+    (created_by) [name: 'transactions_created_by_idx']
+    (deleted_by) [name: 'transactions_deleted_by_idx']
+    (obligation_event_id) [name: 'transactions_obligation_event_idx']
+    (transfer_id) [name: 'transactions_transfer_id_idx']
+    (updated_by) [name: 'transactions_updated_by_idx']
+  }
+
+  note: '''
+    transactions_account_id_fkey: delete: restrict, update: cascade.
+    transactions_bill_command_id_fkey: delete: restrict, update: no action.
+    transactions_category_id_fkey: delete: restrict, update: cascade.
+    transactions_created_by_fkey: delete: restrict, update: cascade.
+    transactions_deleted_by_fkey: delete: restrict, update: cascade.
+    transactions_obligation_event_id_fkey: delete: restrict, update: cascade.
+    transactions_transfer_id_fkey: delete: restrict, update: cascade.
+    transactions_updated_by_fkey: delete: restrict, update: cascade.
+    transactions_amount_signed_finite: CHECK (((amount <> 'NaN'::numeric) AND (abs(amount) <= 999999999999999999.99) AND (((type = 'TRANSFER'::transaction_type) AND (category_id IS NULL) AND (amount <> (0)::numeric) AND (((transfer_id IS NOT NULL) AND (obligation_event_id IS NULL)) OR ((transfer_id IS NULL) AND (obligation_event_id IS NOT NULL)))) OR ((type <> 'TRANSFER'::transaction_type) AND (transfer_id IS NULL) AND (amount > (0)::numeric)))))
+    transactions_description_valid: CHECK (((description IS NULL) OR ((length(btrim(description)) >= 1) AND (length(btrim(description)) <= 5000))))
+    transactions_version_positive: CHECK ((version > 0))
+    CREATE UNIQUE INDEX transactions_transfer_account_unique ON public.transactions USING btree (transfer_id, account_id) WHERE (transfer_id IS NOT NULL);
+    CREATE TRIGGER transaction_cancellation_guard BEFORE INSERT OR UPDATE OF id ON public.transactions FOR EACH ROW EXECUTE FUNCTION guard_investment_cancellation();
+    CREATE TRIGGER transaction_obligation_guard BEFORE INSERT OR UPDATE OF id, obligation_event_id ON public.transactions FOR EACH ROW EXECUTE FUNCTION guard_obligation_command_id();
+    CREATE TRIGGER transactions_bill_identity BEFORE INSERT OR UPDATE ON public.transactions FOR EACH ROW EXECUTE FUNCTION guard_bill_transaction_id();
+  '''
+}
+
 table budgets {
-  id uuid [pk]
-  category_id uuid [ref: > categories.id]
-  icon varchar
-  anchor_date date // kalo MONTHLY liat tanggalnya, kalau WEEKLY liat hari apa, kalo ANNUAL liat tanggal+bulan
-  period_type enum('MONTHLY', 'WEEKLY', 'DAILY', 'ANNUAL')
-  base_currency varchar [default: 'IDR']
-  description text
-  sequence_order bigint
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-  deleted_at timestamptz
+  id uuid [pk, not null]
+  category_id uuid [not null, ref: > categories.id]
+  icon varchar(120) [null]
+  anchor_date date [not null]
+  period_type period_type [not null]
+  base_currency varchar(3) [not null, default: `'IDR'::character varying`]
+  description text [null]
+  sequence_order bigint [not null, default: `0`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (category_id, deleted_at, created_at, id) [name: 'budgets_category_id_deleted_at_created_at_id_idx']
+    (category_id, deleted_at, period_type) [name: 'budgets_category_id_deleted_at_period_type_idx']
+  }
+
+  note: '''
+    budgets_category_id_fkey: delete: restrict, update: cascade.
+    budgets_base_currency_check: CHECK (((base_currency)::text = 'IDR'::text))
+  '''
 }
 
-// effective-dated row: ubah amount = tutup row lama (effective_to), insert row baru. Histori ga ikut berubah.
 table budget_amounts {
-  id uuid [pk]
-  budget_id uuid [ref: > budgets.id]
-  amount decimal(20, 2)
-  effective_from date
-  effective_to date [null] // null = masih berlaku sekarang
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  id uuid [pk, not null]
+  budget_id uuid [not null, ref: > budgets.id]
+  amount numeric(20,2) [not null]
+  effective_from date [not null]
+  effective_to date [null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+
+  indexes {
+    (budget_id, effective_from, effective_to) [name: 'budget_amounts_budget_id_effective_from_effective_to_idx']
+  }
+
+  note: '''
+    budget_amounts_budget_id_fkey: delete: restrict, update: cascade.
+    budget_amounts_dates_check: CHECK (((effective_to IS NULL) OR (effective_to >= effective_from)))
+    budget_amounts_positive_check: CHECK ((amount > (0)::numeric))
+    CREATE UNIQUE INDEX budget_amounts_one_open_row_idx ON public.budget_amounts USING btree (budget_id) WHERE (effective_to IS NULL);
+  '''
 }
 
 //////////////////////////////////////////////////////////////
-// INVESTMENT (saham, reksadana, crypto, emas, dll)
+// INVESTMENTS
 //////////////////////////////////////////////////////////////
-// global, bukan per-user — 1 instrumen = 1 fakta, dipegang lintas user & lintas platform
+
 table instruments {
-  id uuid [pk]
-  code varchar // BBCA, BTC, RD-SCHRODER-DANA-PRESTASI-PLUS, LM-ANTAM-24K
-  name varchar
-  type enum('STOCK', 'MUTUAL_FUND', 'CRYPTO', 'BOND', 'GOLD', 'OTHER')
-  currency varchar [default: 'IDR']
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-  deleted_at timestamptz
+  id uuid [pk, not null]
+  code varchar(120) [not null]
+  name varchar(255) [not null]
+  type instrument_type [not null]
+  currency varchar(3) [not null, default: `'IDR'::character varying`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (code) [name: 'instruments_code_key', unique]
+    (deleted_at, code, id) [name: 'instruments_deleted_at_code_id_idx']
+  }
+
+  note: '''
+    instruments_code_check: CHECK (((code)::text ~ '^[A-Z0-9][A-Z0-9._-]*$'::text))
+    instruments_currency_check: CHECK (((currency)::text = 'IDR'::text))
+  '''
 }
 
-// MVP: update manual (source = MANUAL), integrasi API eksternal dinilai belakangan
 table instrument_prices {
-  id uuid [pk]
-  instrument_id uuid [ref: > instruments.id]
-  price_date date
-  close_price decimal(20, 8) // presisi besar, perlu buat crypto
-  source varchar // MANUAL, API_NAME (future)
-  updated_by uuid [ref: > users.id]
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  id uuid [pk, not null]
+  instrument_id uuid [not null, ref: > instruments.id]
+  price_date date [not null]
+  close_price numeric(20,8) [not null]
+  source varchar(120) [not null, default: `'MANUAL'::character varying`]
+  updated_by uuid [not null, ref: > users.id]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
 
-  indexes { (instrument_id, price_date) [unique] }
+  indexes {
+    (instrument_id, price_date) [name: 'instrument_prices_instrument_id_price_date_key', unique]
+    (price_date, id) [name: 'instrument_prices_price_date_id_idx']
+    (updated_by) [name: 'instrument_prices_updated_by_idx']
+  }
+
+  note: '''
+    instrument_prices_instrument_id_fkey: delete: restrict, update: cascade.
+    instrument_prices_updated_by_fkey: delete: restrict, update: cascade.
+    instrument_prices_price_check: CHECK (((close_price > (0)::numeric) AND (close_price <> 'NaN'::numeric)))
+    instrument_prices_source_check: CHECK (((source)::text = 'MANUAL'::text))
+  '''
 }
 
 table investment_transactions {
-  id uuid [pk]
-  instrument_id uuid [ref: > instruments.id]
-  account_id uuid [ref: > accounts.id] // akun investasi tempat holding berubah (BUY: nambah, SELL: berkurang)
-  cash_account_id uuid [null, ref: > accounts.id] // akun cash yg kena dampak sisi uang: sumber dana (BUY) / tujuan dana (SELL, DIVIDEND)
-  linked_transaction_id uuid [null, ref: > transactions.id] // row transactions cash yg otomatis dibikin
-  type enum('BUY', 'SELL', 'DIVIDEND')
-  quantity decimal(20, 8)
-  price_per_unit decimal(20, 8)
-  fee decimal(20, 2)
-  realized_pl decimal(20, 2) [null] // diisi kalau type = SELL
-  transacted_at timestamptz
-  description text
-  version bigint
-  created_by uuid [ref: > users.id]
-  updated_by uuid [ref: > users.id]
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-  deleted_at timestamptz
+  id uuid [pk, not null]
+  instrument_id uuid [not null, ref: > instruments.id]
+  account_id uuid [not null, ref: > accounts.id]
+  cash_account_id uuid [null, ref: > accounts.id]
+  linked_transaction_id uuid [null, ref: - transactions.id]
+  type investment_transaction_type [not null]
+  quantity numeric(20,8) [not null]
+  price_per_unit numeric(20,8) [not null]
+  fee numeric(20,2) [not null]
+  realized_pl numeric(20,2) [null]
+  transacted_at timestamptz(3) [not null]
+  description text [null]
+  version bigint [not null, default: `1`]
+  created_by uuid [not null, ref: > users.id]
+  updated_by uuid [not null, ref: > users.id]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (account_id, instrument_id, transacted_at) [name: 'investment_transactions_account_instrument_time_key', unique]
+    (cash_account_id) [name: 'investment_transactions_cash_account_id_idx']
+    (created_by) [name: 'investment_transactions_created_by_idx']
+    (instrument_id, account_id, deleted_at, transacted_at, id) [name: 'investment_transactions_instrument_account_history_idx']
+    (linked_transaction_id) [name: 'investment_transactions_linked_transaction_id_key', unique]
+    (updated_by) [name: 'investment_transactions_updated_by_idx']
+  }
+
+  note: '''
+    investment_transactions_account_id_fkey: delete: restrict, update: cascade.
+    investment_transactions_cash_account_id_fkey: delete: restrict, update: cascade.
+    investment_transactions_created_by_fkey: delete: restrict, update: cascade.
+    investment_transactions_instrument_id_fkey: delete: restrict, update: cascade.
+    investment_transactions_linked_transaction_id_fkey: delete: restrict, update: cascade.
+    investment_transactions_updated_by_fkey: delete: restrict, update: cascade.
+    investment_transactions_cash_check: CHECK ((((cash_account_id IS NULL) = (linked_transaction_id IS NULL)) AND ((cash_account_id IS NULL) OR (cash_account_id <> account_id))))
+    investment_transactions_numeric_check: CHECK (((quantity > (0)::numeric) AND (quantity <> 'NaN'::numeric) AND (price_per_unit > (0)::numeric) AND (price_per_unit <> 'NaN'::numeric) AND (fee >= (0)::numeric) AND (fee <> 'NaN'::numeric) AND (version > 0)))
+    investment_transactions_realized_check: CHECK ((((type = 'SELL'::investment_transaction_type) AND (realized_pl IS NOT NULL) AND (realized_pl <> 'NaN'::numeric)) OR ((type <> 'SELL'::investment_transaction_type) AND (realized_pl IS NULL))))
+    CREATE TRIGGER investment_cancellation_guard BEFORE INSERT OR UPDATE OF id ON public.investment_transactions FOR EACH ROW EXECUTE FUNCTION guard_investment_cancellation();
+    CREATE TRIGGER investment_obligation_guard BEFORE INSERT OR UPDATE OF id ON public.investment_transactions FOR EACH ROW EXECUTE FUNCTION guard_obligation_command_id();
+  '''
 }
 
-// di-generate event-triggered (begitu ada instrument_prices baru), basis buat grafik & floating P/L
 table portfolio_daily_snapshots {
-  id uuid [pk]
-  account_id uuid [ref: > accounts.id]
-  instrument_id uuid [ref: > instruments.id]
-  snapshot_date date
-  quantity_held decimal(20, 8)
-  avg_cost_price decimal(20, 8)
-  market_price decimal(20, 8)
-  market_value decimal(20, 2) // quantity_held x market_price
-  unrealized_pl decimal(20, 2) // market_value - (quantity_held x avg_cost_price)
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  id uuid [pk, not null]
+  account_id uuid [not null, ref: > accounts.id]
+  instrument_id uuid [not null, ref: > instruments.id]
+  snapshot_date date [not null]
+  quantity_held numeric(20,8) [not null]
+  avg_cost_price numeric(20,8) [not null]
+  market_price numeric(20,8) [not null]
+  market_value numeric(20,2) [not null]
+  unrealized_pl numeric(20,2) [not null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
 
-  indexes { (account_id, instrument_id, snapshot_date) [unique] }
+  indexes {
+    (account_id, instrument_id, snapshot_date) [name: 'portfolio_snapshots_account_instrument_date_key', unique]
+    (instrument_id, snapshot_date, account_id) [name: 'portfolio_snapshots_instrument_date_account_idx']
+  }
+
+  note: '''
+    portfolio_daily_snapshots_account_id_fkey: delete: restrict, update: cascade.
+    portfolio_daily_snapshots_instrument_id_fkey: delete: restrict, update: cascade.
+    portfolio_daily_snapshots_numeric_check: CHECK (((quantity_held >= (0)::numeric) AND (quantity_held <> 'NaN'::numeric) AND (avg_cost_price >= (0)::numeric) AND (avg_cost_price <> 'NaN'::numeric) AND (market_price > (0)::numeric) AND (market_price <> 'NaN'::numeric) AND (market_value >= (0)::numeric) AND (market_value <> 'NaN'::numeric) AND (unrealized_pl <> 'NaN'::numeric)))
+  '''
+}
+
+table investment_recoveries {
+  trade_id uuid [pk, not null]
+  linked_transaction_id uuid [not null]
+  user_id uuid [not null, ref: > users.id]
+  device_id uuid [not null, ref: > devices.id]
+  account_id uuid [not null, ref: > accounts.id]
+  cash_account_id uuid [not null, ref: > accounts.id]
+  command_sha256 char(64) [not null]
+  command jsonb [not null]
+  status varchar(16) [not null, default: `'PENDING'::character varying`]
+  reviewed_by uuid [null, ref: > users.id]
+  review_reason varchar(1000) [null]
+  reviewed_at timestamptz(3) [null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (linked_transaction_id) [name: 'investment_recoveries_linked_transaction_id_key', unique]
+    (user_id, created_at) [name: 'investment_recoveries_user_id_created_at_idx']
+  }
+
+  note: '''
+    investment_recoveries_account_id_fkey: delete: restrict, update: cascade.
+    investment_recoveries_cash_account_id_fkey: delete: restrict, update: cascade.
+    investment_recoveries_device_id_fkey: delete: restrict, update: cascade.
+    investment_recoveries_reviewed_by_fkey: delete: restrict, update: cascade.
+    investment_recoveries_user_id_fkey: delete: restrict, update: cascade.
+    trade_id and linked_transaction_id identify/reserve possibly never-applied commands; they are not foreign keys to trade or transaction rows.
+    investment_recoveries_check: CHECK ((trade_id <> linked_transaction_id))
+    investment_recoveries_check1: CHECK ((account_id <> cash_account_id))
+    investment_recoveries_check2: CHECK (((((status)::text = 'PENDING'::text) AND (reviewed_by IS NULL) AND (reviewed_at IS NULL) AND (review_reason IS NULL)) OR (((status)::text <> 'PENDING'::text) AND (reviewed_by IS NOT NULL) AND (reviewed_at IS NOT NULL) AND (length((review_reason)::text) > 0))))
+    investment_recoveries_command_sha256_check: CHECK ((command_sha256 ~ '^[a-f0-9]{64}$'::text))
+    investment_recoveries_status_check: CHECK (((status)::text = ANY ((ARRAY['PENDING'::character varying, 'CANCELLED'::character varying, 'DENIED'::character varying])::text[])))
+  '''
+}
+
+table investment_cancellation_ids {
+  id uuid [pk, not null]
+  trade_id uuid [not null, ref: > investment_recoveries.trade_id]
+
+  indexes {
+    (trade_id) [name: 'investment_cancellation_ids_trade_id_idx']
+  }
+
+  note: '''
+    investment_cancellation_ids_trade_id_fkey: delete: restrict, update: cascade.
+    CREATE TRIGGER investment_cancellation_identity_guard BEFORE INSERT OR DELETE OR UPDATE ON public.investment_cancellation_ids FOR EACH ROW EXECUTE FUNCTION guard_investment_cancellation();
+  '''
 }
 
 //////////////////////////////////////////////////////////////
-// GROUPING (pasutri / keluarga berbagi keuangan)
+// HOUSEHOLDS
 //////////////////////////////////////////////////////////////
+
 table groups {
-  id uuid [pk]
-  code varchar [unique]
-  name varchar
-  is_active boolean
-  created_by uuid [ref: > users.id]
-  updated_by uuid [ref: > users.id]
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-  deleted_at timestamptz
+  id uuid [pk, not null]
+  code varchar(16) [not null]
+  name varchar(120) [not null]
+  is_active boolean [not null, default: `true`]
+  created_by uuid [not null, ref: > users.id]
+  updated_by uuid [not null, ref: > users.id]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (code) [name: 'groups_code_key', unique]
+    (created_by) [name: 'groups_created_by_idx']
+    (is_active, deleted_at, created_at, id) [name: 'groups_is_active_deleted_at_created_at_id_idx']
+    (updated_by) [name: 'groups_updated_by_idx']
+  }
+
+  note: '''
+    groups_created_by_fkey: delete: restrict, update: cascade.
+    groups_updated_by_fkey: delete: restrict, update: cascade.
+    groups_code_format_check: CHECK (((code)::text ~ '^[A-Z0-9]{12}$'::text))
+    groups_name_check: CHECK ((length(btrim((name)::text)) > 0))
+  '''
 }
 
 table user_groups {
-  id uuid [pk]
-  user_id uuid [ref: > users.id]
-  group_id uuid [ref: > groups.id]
-  role enum('OWNER', 'MEMBER')
-  created_by uuid [ref: > users.id]
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  group_id uuid [not null, ref: > groups.id]
+  role group_role [not null]
+  created_by uuid [not null, ref: > users.id]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
 
   indexes {
-    (user_id, group_id) [unique]
+    (created_by) [name: 'user_groups_created_by_idx']
+    (group_id, created_at, id) [name: 'user_groups_group_id_created_at_id_idx']
+    (user_id, group_id) [name: 'user_groups_user_id_group_id_key', unique]
   }
+
+  note: '''
+    user_groups_created_by_fkey: delete: restrict, update: cascade.
+    user_groups_group_id_fkey: delete: restrict, update: cascade.
+    user_groups_user_id_fkey: delete: restrict, update: cascade.
+  '''
 }
 
-// opt-in per account: akun privat tetap privat kecuali sengaja di-link ke grup
 table group_accounts {
-  id uuid [pk]
-  group_id uuid [ref: > groups.id]
-  account_id uuid [ref: > accounts.id]
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  id uuid [pk, not null]
+  group_id uuid [not null, ref: > groups.id]
+  account_id uuid [not null, ref: > accounts.id]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
 
   indexes {
-    (group_id, account_id) [unique]
+    (account_id) [name: 'group_accounts_account_id_idx']
+    (group_id, account_id) [name: 'group_accounts_group_id_account_id_key', unique]
   }
+
+  note: '''
+    group_accounts_account_id_fkey: delete: restrict, update: cascade.
+    group_accounts_group_id_fkey: delete: restrict, update: cascade.
+  '''
 }
 
-// kategori gabungan grup, utk agregasi laporan lintas-anggota (mis. total "Makanan" keluarga)
 table group_categories {
-  id uuid [pk]
-  group_id uuid [ref: > groups.id]
-  name varchar
-  type enum('EXPENSE', 'INCOME')
-  created_by uuid [ref: > users.id]
-  updated_by uuid [ref: > users.id]
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
-}
-
-// mapping kategori personal -> kategori grup (opsional per user, bukan wajib)
-table mapping_group_categories {
-  id uuid [pk]
-  group_id uuid [ref: > groups.id] // ada kolom ini karena kebutuhan constraint DB di PostgreSQL
-  group_category_id uuid [ref: > group_categories.id]
-  user_category_id uuid [ref: > categories.id]
-  created_at timestamptz [default: `CURRENT_TIMESTAMP()`]
-  updated_at timestamptz [default: `ON UPDATE CURRENT_TIMESTAMP`]
+  id uuid [pk, not null]
+  group_id uuid [not null, ref: > groups.id]
+  name varchar(120) [not null]
+  type category_type [not null]
+  created_by uuid [not null, ref: > users.id]
+  updated_by uuid [not null, ref: > users.id]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
 
   indexes {
-    (group_id, user_category_id) [unique] // 1 kategori personal cuma boleh 1 mapping per grup
+    (created_by) [name: 'group_categories_created_by_idx']
+    (group_id, id) [name: 'group_categories_group_id_id_key', unique]
+    (group_id, type) [name: 'group_categories_group_id_type_idx']
+    (updated_by) [name: 'group_categories_updated_by_idx']
   }
+
+  note: '''
+    group_categories_created_by_fkey: delete: restrict, update: cascade.
+    group_categories_group_id_fkey: delete: restrict, update: cascade.
+    group_categories_updated_by_fkey: delete: restrict, update: cascade.
+    group_categories_name_check: CHECK ((length(btrim((name)::text)) > 0))
+  '''
+}
+
+table mapping_group_categories {
+  id uuid [pk, not null]
+  group_id uuid [not null, ref: > groups.id]
+  group_category_id uuid [not null, ref: > group_categories.id]
+  user_category_id uuid [not null, ref: > categories.id]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+
+  indexes {
+    (group_category_id) [name: 'mapping_group_categories_group_category_id_idx']
+    (group_id, user_category_id) [name: 'mapping_group_categories_group_id_user_category_id_key', unique]
+    (user_category_id) [name: 'mapping_group_categories_user_category_id_idx']
+  }
+
+  note: '''
+    mapping_group_categories_group_id_fkey: delete: restrict, update: cascade.
+    mapping_group_categories_group_id_group_category_id_fkey: FOREIGN KEY (group_id, group_category_id) REFERENCES group_categories(group_id, id) (delete: cascade, update: cascade). Composite enforcement remains defined in the SQL migration.
+    mapping_group_categories_user_category_id_fkey: delete: restrict, update: cascade.
+  '''
+}
+
+//////////////////////////////////////////////////////////////
+// WEALTH PLANNING
+//////////////////////////////////////////////////////////////
+
+table net_worth_observations {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  currency varchar(3) [not null]
+  snapshot_date date [not null]
+  observed_at timestamptz(3) [not null]
+  payload jsonb [not null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (user_id, currency, snapshot_date) [name: 'net_worth_observations_user_id_currency_snapshot_date_key', unique]
+  }
+
+  note: '''
+    net_worth_observations_user_id_fkey: delete: restrict, update: cascade.
+    net_worth_observations_utc_date_check: CHECK ((snapshot_date = ((observed_at AT TIME ZONE 'UTC'::text))::date))
+  '''
+}
+
+table obligations {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  kind varchar(16) [not null]
+  counterparty varchar(255) [not null]
+  currency varchar(3) [not null, default: `'IDR'::character varying`]
+  principal numeric(20,2) [not null]
+  outstanding numeric(20,2) [not null]
+  due_date date [null]
+  installments jsonb [not null]
+  linked_account_id uuid [null, ref: > accounts.id]
+  version bigint [not null, default: `1`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (linked_account_id, deleted_at) [name: 'obligations_linked_account_id_deleted_at_idx']
+    (user_id, deleted_at, created_at, id) [name: 'obligations_user_id_deleted_at_created_at_id_idx']
+  }
+
+  note: '''
+    obligations_linked_account_id_fkey: delete: restrict, update: cascade.
+    obligations_user_id_fkey: delete: restrict, update: cascade.
+    obligations_amounts_check: CHECK (((principal <> 'NaN'::numeric) AND (outstanding <> 'NaN'::numeric) AND (principal > (0)::numeric) AND (outstanding >= (0)::numeric) AND (outstanding <= principal) AND (version > 0) AND ((currency)::text = 'IDR'::text) AND ((kind)::text = ANY ((ARRAY['PAYABLE'::character varying, 'RECEIVABLE'::character varying])::text[]))))
+    CREATE UNIQUE INDEX obligations_active_mapped_account_key ON public.obligations USING btree (linked_account_id) WHERE ((deleted_at IS NULL) AND (linked_account_id IS NOT NULL));
+  '''
+}
+
+table obligation_events {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  obligation_id uuid [null, ref: > obligations.id]
+  operation varchar(16) [not null]
+  principal numeric(20,2) [not null]
+  interest numeric(20,2) [not null]
+  fee numeric(20,2) [not null]
+  cash_account_id uuid [null, ref: > accounts.id]
+  cash_principal_id uuid [null]
+  mapped_principal_id uuid [null]
+  interest_id uuid [null]
+  fee_id uuid [null]
+  target_event_id uuid [null, ref: > obligation_events.id]
+  command jsonb [not null]
+  fingerprint char(64) [not null]
+  transacted_at timestamptz(3) [not null]
+  reversed_at timestamptz(3) [null]
+  version bigint [not null, default: `1`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (cash_account_id) [name: 'obligation_events_cash_account_id_idx']
+    (cash_principal_id) [name: 'obligation_events_cash_principal_id_key', unique]
+    (fee_id) [name: 'obligation_events_fee_id_key', unique]
+    (interest_id) [name: 'obligation_events_interest_id_key', unique]
+    (mapped_principal_id) [name: 'obligation_events_mapped_principal_id_key', unique]
+    (obligation_id, transacted_at, id) [name: 'obligation_events_obligation_id_transacted_at_id_idx']
+    (target_event_id) [name: 'obligation_events_target_event_id_idx']
+    (user_id, created_at, id) [name: 'obligation_events_user_id_created_at_id_idx']
+  }
+
+  note: '''
+    obligation_events_cash_account_id_fkey: delete: restrict, update: cascade.
+    obligation_events_obligation_id_fkey: delete: restrict, update: cascade.
+    obligation_events_target_event_id_fkey: delete: restrict, update: cascade.
+    obligation_events_user_id_fkey: delete: restrict, update: cascade.
+    Cash/mapped principal, interest and fee UUIDs are unique reserved identities, not foreign keys to transactions; transactions.obligation_event_id holds the actual ledger relation.
+    obligation_events_amounts_check: CHECK (((principal <> 'NaN'::numeric) AND (interest <> 'NaN'::numeric) AND (fee <> 'NaN'::numeric) AND (principal >= (0)::numeric) AND (interest >= (0)::numeric) AND (fee >= (0)::numeric) AND (version > 0) AND ((operation)::text = ANY ((ARRAY['OPEN'::character varying, 'REPAY'::character varying, 'REVERSE'::character varying, 'DELETE'::character varying, 'CANCEL'::character varying])::text[]))))
+  '''
+}
+
+table obligation_command_ids {
+  id uuid [pk, not null]
+  event_id uuid [not null, ref: > obligation_events.id]
+
+  indexes {
+    (event_id) [name: 'obligation_command_ids_event_id_idx']
+  }
+
+  note: '''
+    obligation_command_ids_event_id_fkey: delete: restrict, update: cascade.
+    CREATE TRIGGER obligation_reservation_guard BEFORE INSERT ON public.obligation_command_ids FOR EACH ROW EXECUTE FUNCTION guard_obligation_command_id();
+  '''
+}
+
+table goals {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  group_id uuid [null, ref: > groups.id]
+  name varchar(120) [not null]
+  currency varchar(3) [not null]
+  target_amount numeric(20,2) [not null]
+  start_date date [not null]
+  target_date date [not null]
+  status varchar(16) [not null, default: `'ACTIVE'::character varying`]
+  version bigint [not null, default: `1`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (group_id, deleted_at) [name: 'goals_group_id_deleted_at_idx']
+    (user_id, deleted_at) [name: 'goals_user_id_deleted_at_idx']
+  }
+
+  note: '''
+    goals_group_id_fkey: delete: restrict, update: no action.
+    goals_user_id_fkey: delete: restrict, update: no action.
+    goals_valid: CHECK (((target_amount > (0)::numeric) AND (target_amount <> 'NaN'::numeric) AND (target_amount <= 999999999999999999.99) AND (target_date >= start_date) AND ((currency)::text ~ '^[A-Z]{3}$'::text) AND ((status)::text = ANY ((ARRAY['ACTIVE'::character varying, 'COMPLETED'::character varying])::text[])) AND (version > 0)))
+  '''
+}
+
+table goal_allocations {
+  id uuid [pk, not null]
+  goal_id uuid [not null, ref: > goals.id]
+  user_id uuid [not null, ref: > users.id]
+  account_id uuid [not null, ref: > accounts.id]
+  amount numeric(20,2) [not null]
+  version bigint [not null, default: `1`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (account_id, deleted_at, created_at, id) [name: 'goal_allocations_account_id_deleted_at_created_at_id_idx']
+    (goal_id, account_id) [name: 'goal_allocations_goal_id_account_id_key', unique]
+    (user_id, deleted_at) [name: 'goal_allocations_user_id_deleted_at_idx']
+  }
+
+  note: '''
+    goal_allocations_account_id_fkey: delete: restrict, update: no action.
+    goal_allocations_goal_id_fkey: delete: restrict, update: no action.
+    goal_allocations_user_id_fkey: delete: restrict, update: no action.
+    goal_allocations_valid: CHECK (((amount >= (0)::numeric) AND (amount <> 'NaN'::numeric) AND (amount <= 999999999999999999.99) AND (version > 0)))
+  '''
+}
+
+table emergency_plans {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  currency varchar(3) [not null, default: `'IDR'::character varying`]
+  baseline_mode varchar(16) [not null]
+  manual_baseline numeric(20,2) [null]
+  coverage_months integer [not null]
+  history_months integer [not null]
+  account_ids jsonb [not null]
+  category_ids jsonb [not null]
+  goal_id uuid [null, ref: > goals.id]
+  version bigint [not null, default: `1`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (user_id, deleted_at) [name: 'emergency_plans_user_id_deleted_at_idx']
+  }
+
+  note: '''
+    emergency_plans_goal_id_fkey: delete: restrict, update: no action.
+    emergency_plans_user_id_fkey: delete: restrict, update: no action.
+    account_ids/category_ids are JSONB selections validated by the application, not join tables or foreign keys.
+    emergency_plans_valid: CHECK ((((currency)::text = 'IDR'::text) AND (version > 0) AND ((coverage_months >= 1) AND (coverage_months <= 60)) AND (history_months = ANY (ARRAY[3, 6, 12])) AND (jsonb_typeof(account_ids) = 'array'::text) AND (jsonb_array_length(account_ids) <= 100) AND (jsonb_typeof(category_ids) = 'array'::text) AND (jsonb_array_length(category_ids) <= 200) AND ((((baseline_mode)::text = 'HISTORY'::text) AND (manual_baseline IS NULL)) OR (((baseline_mode)::text = 'MANUAL'::text) AND (manual_baseline IS NOT NULL) AND (manual_baseline > (0)::numeric) AND (manual_baseline <> 'NaN'::numeric) AND ((manual_baseline * (coverage_months)::numeric) <= 999999999999999999.99)))))
+    CREATE UNIQUE INDEX emergency_plans_live_owner_key ON public.emergency_plans USING btree (user_id) WHERE (deleted_at IS NULL);
+  '''
+}
+
+//////////////////////////////////////////////////////////////
+// BILLS AND NOTIFICATIONS
+//////////////////////////////////////////////////////////////
+
+table bill_schedules {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  title varchar(120) [not null]
+  transaction_type varchar(16) [not null]
+  amount_type varchar(16) [not null]
+  amount numeric(20,2) [not null]
+  account_id uuid [not null, ref: > accounts.id]
+  category_id uuid [null, ref: > categories.id]
+  obligation_id uuid [null, ref: > obligations.id]
+  frequency varchar(16) [not null]
+  anchor_date date [not null]
+  end_date date [null]
+  utc_offset_minutes integer [not null]
+  installments jsonb [not null]
+  reminder_enabled boolean [not null, default: `true`]
+  reminder_days integer [not null, default: `3`]
+  active boolean [not null, default: `true`]
+  version bigint [not null, default: `1`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+  deleted_at timestamptz(3) [null]
+
+  indexes {
+    (user_id, deleted_at) [name: 'bill_schedules_user_id_deleted_at_idx']
+  }
+
+  note: '''
+    bill_schedules_account_id_fkey: delete: restrict, update: no action.
+    bill_schedules_category_id_fkey: delete: restrict, update: no action.
+    bill_schedules_obligation_id_fkey: delete: restrict, update: no action.
+    bill_schedules_user_id_fkey: delete: restrict, update: no action.
+    bill_schedules_valid: CHECK (((amount > (0)::numeric) AND (amount <> 'NaN'::numeric) AND (amount <= 999999999999999999.99) AND (version > 0) AND ((transaction_type)::text = ANY ((ARRAY['INCOME'::character varying, 'EXPENSE'::character varying])::text[])) AND ((amount_type)::text = ANY ((ARRAY['FIXED'::character varying, 'ESTIMATED'::character varying])::text[])) AND ((frequency)::text = ANY ((ARRAY['ONCE'::character varying, 'WEEKLY'::character varying, 'MONTHLY'::character varying, 'YEARLY'::character varying, 'INSTALLMENTS'::character varying])::text[])) AND (utc_offset_minutes = ANY (ARRAY[0, 420, 480, 540])) AND ((reminder_days >= 0) AND (reminder_days <= 30)) AND ((end_date IS NULL) OR (end_date >= anchor_date)) AND (((obligation_id IS NULL) AND (category_id IS NOT NULL) AND ((frequency)::text <> 'INSTALLMENTS'::text)) OR ((obligation_id IS NOT NULL) AND (category_id IS NULL) AND ((frequency)::text = 'INSTALLMENTS'::text) AND ((amount_type)::text = 'FIXED'::text)))))
+  '''
+}
+
+table bill_occurrences {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  bill_id uuid [not null, ref: > bill_schedules.id]
+  due_date date [not null]
+  status varchar(16) [not null]
+  amount numeric(20,2) [not null]
+  transaction_id uuid [null, ref: - transactions.id]
+  obligation_event_id uuid [null, ref: > obligation_events.id]
+  note varchar(500) [not null, default: `''::character varying`]
+  version bigint [not null, default: `1`]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+
+  indexes {
+    (bill_id, due_date) [name: 'bill_occurrences_bill_id_due_date_key', unique]
+    (obligation_event_id) [name: 'bill_occurrences_obligation_event_id_idx']
+    (transaction_id) [name: 'bill_occurrences_transaction_id_key', unique]
+    (user_id, due_date) [name: 'bill_occurrences_user_id_due_date_idx']
+  }
+
+  note: '''
+    bill_occurrences_bill_id_fkey: delete: restrict, update: no action.
+    bill_occurrences_obligation_event_id_fkey: delete: restrict, update: no action.
+    bill_occurrences_transaction_id_fkey: delete: restrict, update: no action.
+    bill_occurrences_user_id_fkey: delete: restrict, update: no action.
+    bill_occurrences_valid: CHECK (((amount >= (0)::numeric) AND (amount <> 'NaN'::numeric) AND (amount <= 999999999999999999.99) AND (version > 0) AND ((((status)::text = 'PAID'::text) AND (amount > (0)::numeric) AND ((transaction_id IS NULL) <> (obligation_event_id IS NULL))) OR (((status)::text = ANY ((ARRAY['PENDING'::character varying, 'SKIPPED'::character varying])::text[])) AND (amount = (0)::numeric) AND (transaction_id IS NULL) AND (obligation_event_id IS NULL)))))
+  '''
+}
+
+table bill_commands {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  bill_id uuid [not null, ref: > bill_schedules.id]
+  occurrence_id uuid [null, ref: > bill_occurrences.id]
+  ledger_id uuid [not null]
+  fingerprint char(64) [not null]
+  payload jsonb [not null]
+  outcome varchar(16) [not null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+
+  indexes {
+    (ledger_id) [name: 'bill_commands_ledger_id_key', unique]
+    (user_id, created_at) [name: 'bill_commands_user_id_created_at_idx']
+  }
+
+  note: '''
+    bill_commands_bill_id_fkey: delete: restrict, update: no action.
+    bill_commands_occurrence_id_fkey: delete: restrict, update: no action.
+    bill_commands_user_id_fkey: delete: restrict, update: no action.
+    ledger_id reserves a transaction identity and is not a foreign key. transactions.bill_command_id is the persisted ledger relation.
+    bill_commands_valid: CHECK ((((outcome)::text = ANY ((ARRAY['RESERVED'::character varying, 'APPLIED'::character varying, 'CANCELLED'::character varying])::text[])) AND (id <> ledger_id) AND (((outcome)::text <> 'APPLIED'::text) OR (occurrence_id IS NOT NULL))))
+  '''
+}
+
+table notifications {
+  id uuid [pk, not null]
+  user_id uuid [not null, ref: > users.id]
+  type notification_type [not null]
+  title varchar(255) [not null]
+  body text [not null]
+  metadata jsonb [null]
+  is_read boolean [not null, default: `false`]
+  read_at timestamptz(3) [null]
+  created_at timestamptz(3) [not null, default: `CURRENT_TIMESTAMP`]
+  updated_at timestamptz(3) [not null]
+
+  indexes {
+    (user_id, created_at, id) [name: 'notifications_user_id_created_at_id_idx', note: 'CREATE INDEX notifications_user_id_created_at_id_idx ON public.notifications USING btree (user_id, created_at DESC, id DESC)']
+    (user_id, is_read, created_at, id) [name: 'notifications_user_id_is_read_created_at_id_idx', note: 'CREATE INDEX notifications_user_id_is_read_created_at_id_idx ON public.notifications USING btree (user_id, is_read, created_at DESC, id DESC)']
+  }
+
+  note: '''
+    notifications_user_id_fkey: delete: restrict, update: cascade.
+    notifications_body_length_check: CHECK (((char_length(body) >= 1) AND (char_length(body) <= 10000)))
+    notifications_read_state_check: CHECK ((((is_read = false) AND (read_at IS NULL)) OR ((is_read = true) AND (read_at IS NOT NULL))))
+    notifications_title_length_check: CHECK (((char_length((title)::text) >= 1) AND (char_length((title)::text) <= 255)))
+  '''
 }

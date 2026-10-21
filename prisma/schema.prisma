@@ -273,6 +273,7 @@ model AccountType {
 }
 
 model Account {
+  billSchedules              BillSchedule[]
   goalAllocations            GoalAllocation[]
   mappedObligations          Obligation[]             @relation("MappedObligationAccount")
   obligationCashEvents       ObligationEvent[]        @relation("ObligationCashAccount")
@@ -333,6 +334,7 @@ model RefCategory {
 }
 
 model Category {
+  billSchedules BillSchedule[]
   id            String                 @id @db.Uuid
   userId        String                 @map("user_id") @db.Uuid
   type          CategoryType
@@ -360,6 +362,9 @@ enum TransactionType {
 }
 
 model Transaction {
+  billCommandId         String?                @unique @map("bill_command_id") @db.Uuid
+  billCommand           BillCommand?           @relation(fields: [billCommandId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  billOccurrences       BillOccurrence[]
   obligationEventId     String?                @map("obligation_event_id") @db.Uuid
   obligationEvent       ObligationEvent?       @relation(fields: [obligationEventId], references: [id], onDelete: Restrict)
   id                    String                 @id @db.Uuid
@@ -427,6 +432,10 @@ model Transfer {
 }
 
 model User {
+  billSchedules                 BillSchedule[]
+  billOccurrences               BillOccurrence[]
+  billCommands                  BillCommand[]
+  emergencyPlans                EmergencyPlan[]
   goals                         Goal[]
   goalAllocations               GoalAllocation[]
   obligations                   Obligation[]
@@ -723,23 +732,123 @@ model InvestmentCancellationId {
   @@map("investment_cancellation_ids")
 }
 
+model BillSchedule {
+  id               String           @id @db.Uuid
+  userId           String           @map("user_id") @db.Uuid
+  title            String           @db.VarChar(120)
+  transactionType  String           @map("transaction_type") @db.VarChar(16)
+  amountType       String           @map("amount_type") @db.VarChar(16)
+  amount           Decimal          @db.Decimal(20, 2)
+  accountId        String           @map("account_id") @db.Uuid
+  categoryId       String?          @map("category_id") @db.Uuid
+  obligationId     String?          @map("obligation_id") @db.Uuid
+  frequency        String           @db.VarChar(16)
+  anchorDate       DateTime         @map("anchor_date") @db.Date
+  endDate          DateTime?        @map("end_date") @db.Date
+  utcOffsetMinutes Int              @map("utc_offset_minutes")
+  installments     Json             @db.JsonB
+  reminderEnabled  Boolean          @default(true) @map("reminder_enabled")
+  reminderDays     Int              @default(3) @map("reminder_days")
+  active           Boolean          @default(true)
+  version          BigInt           @default(1)
+  createdAt        DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt        DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt        DateTime?        @map("deleted_at") @db.Timestamptz(3)
+  user             User             @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  account          Account          @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  category         Category?        @relation(fields: [categoryId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  obligation       Obligation?      @relation(fields: [obligationId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  occurrences      BillOccurrence[]
+  commands         BillCommand[]
+
+  @@index([userId, deletedAt])
+  @@map("bill_schedules")
+}
+
+model BillOccurrence {
+  id                String           @id @db.Uuid
+  userId            String           @map("user_id") @db.Uuid
+  billId            String           @map("bill_id") @db.Uuid
+  dueDate           DateTime         @map("due_date") @db.Date
+  status            String           @db.VarChar(16)
+  amount            Decimal          @db.Decimal(20, 2)
+  transactionId     String?          @unique @map("transaction_id") @db.Uuid
+  obligationEventId String?          @map("obligation_event_id") @db.Uuid
+  note              String           @default("") @db.VarChar(500)
+  version           BigInt           @default(1)
+  createdAt         DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt         DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  user              User             @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  bill              BillSchedule     @relation(fields: [billId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  transaction       Transaction?     @relation(fields: [transactionId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  obligationEvent   ObligationEvent? @relation(fields: [obligationEventId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  commands          BillCommand[]
+
+  @@unique([billId, dueDate])
+  @@index([userId, dueDate])
+  @@index([obligationEventId])
+  @@map("bill_occurrences")
+}
+
+model BillCommand {
+  id           String          @id @db.Uuid
+  userId       String          @map("user_id") @db.Uuid
+  billId       String          @map("bill_id") @db.Uuid
+  occurrenceId String?         @map("occurrence_id") @db.Uuid
+  ledgerId     String          @unique @map("ledger_id") @db.Uuid
+  fingerprint  String          @db.Char(64)
+  payload      Json            @db.JsonB
+  outcome      String          @db.VarChar(16)
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz(3)
+  user         User            @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  bill         BillSchedule    @relation(fields: [billId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  occurrence   BillOccurrence? @relation(fields: [occurrenceId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  transactions Transaction[]
+
+  @@index([userId, createdAt])
+  @@map("bill_commands")
+}
+
+model EmergencyPlan {
+  id             String    @id @db.Uuid
+  userId         String    @map("user_id") @db.Uuid
+  currency       String    @default("IDR") @db.VarChar(3)
+  baselineMode   String    @map("baseline_mode") @db.VarChar(16)
+  manualBaseline Decimal?  @map("manual_baseline") @db.Decimal(20, 2)
+  coverageMonths Int       @map("coverage_months")
+  historyMonths  Int       @map("history_months")
+  accountIds     Json      @map("account_ids") @db.JsonB
+  categoryIds    Json      @map("category_ids") @db.JsonB
+  goalId         String?   @map("goal_id") @db.Uuid
+  goal           Goal?     @relation(fields: [goalId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  version        BigInt    @default(1)
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt      DateTime? @map("deleted_at") @db.Timestamptz(3)
+  user           User      @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+
+  @@index([userId, deletedAt])
+  @@map("emergency_plans")
+}
+
 model Goal {
-  id           String           @id @db.Uuid
-  userId       String           @map("user_id") @db.Uuid
-  groupId      String?          @map("group_id") @db.Uuid
-  name         String           @db.VarChar(120)
-  currency     String           @db.VarChar(3)
-  targetAmount Decimal          @map("target_amount") @db.Decimal(20, 2)
-  startDate    DateTime         @map("start_date") @db.Date
-  targetDate   DateTime         @map("target_date") @db.Date
-  status       String           @default("ACTIVE") @db.VarChar(16)
-  version      BigInt           @default(1)
-  createdAt    DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt    DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
-  deletedAt    DateTime?        @map("deleted_at") @db.Timestamptz(3)
-  user         User             @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  group        Group?           @relation(fields: [groupId], references: [id], onDelete: Restrict, onUpdate: NoAction)
-  allocations  GoalAllocation[]
+  emergencyPlans EmergencyPlan[]
+  id             String           @id @db.Uuid
+  userId         String           @map("user_id") @db.Uuid
+  groupId        String?          @map("group_id") @db.Uuid
+  name           String           @db.VarChar(120)
+  currency       String           @db.VarChar(3)
+  targetAmount   Decimal          @map("target_amount") @db.Decimal(20, 2)
+  startDate      DateTime         @map("start_date") @db.Date
+  targetDate     DateTime         @map("target_date") @db.Date
+  status         String           @default("ACTIVE") @db.VarChar(16)
+  version        BigInt           @default(1)
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt      DateTime         @updatedAt @map("updated_at") @db.Timestamptz(3)
+  deletedAt      DateTime?        @map("deleted_at") @db.Timestamptz(3)
+  user           User             @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  group          Group?           @relation(fields: [groupId], references: [id], onDelete: Restrict, onUpdate: NoAction)
+  allocations    GoalAllocation[]
 
   @@index([userId, deletedAt])
   @@index([groupId, deletedAt])
@@ -767,6 +876,7 @@ model GoalAllocation {
 }
 
 model Obligation {
+  billSchedules   BillSchedule[]
   id              String            @id @db.Uuid
   userId          String            @map("user_id") @db.Uuid
   kind            String            @db.VarChar(16)
@@ -791,6 +901,7 @@ model Obligation {
 }
 
 model ObligationEvent {
+  billOccurrences   BillOccurrence[]
   id                String                @id @db.Uuid
   userId            String                @map("user_id") @db.Uuid
   obligationId      String?               @map("obligation_id") @db.Uuid
