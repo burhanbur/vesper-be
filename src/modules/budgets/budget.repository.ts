@@ -87,18 +87,18 @@ export class PrismaBudgetRepository implements BudgetRepository {
       async (tx) => {
         await this.ownerLock(tx, userId);
         await this.categoryLock(tx, userId, input.category_id);
-        const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z');
+        const anchor = new Date(input.anchor_date + 'T00:00:00.000Z');
         return tx.budget.create({
           data: {
             id: generateId(),
             categoryId: input.category_id,
-            anchorDate: new Date(input.anchor_date + 'T00:00:00.000Z'),
+            anchorDate: anchor,
             periodType: input.period_type,
             baseCurrency: input.base_currency,
             icon: input.icon ?? null,
             description: input.description ?? null,
             sequenceOrder: BigInt(input.sequence_order),
-            amounts: { create: { id: generateId(), amount: input.amount, effectiveFrom: today } },
+            amounts: { create: { id: generateId(), amount: input.amount, effectiveFrom: anchor } },
           },
           include,
         });
@@ -125,12 +125,13 @@ export class PrismaBudgetRepository implements BudgetRepository {
         }
         if (input.amount !== undefined) {
           const today = new Date(new Date().toISOString().slice(0, 10) + 'T00:00:00.000Z');
+          const effectiveDate = current.anchorDate > today ? current.anchorDate : today;
           await tx.budgetAmount.updateMany({
             where: { budgetId: id, effectiveTo: null },
-            data: { effectiveTo: today },
+            data: { effectiveTo: effectiveDate },
           });
           await tx.budgetAmount.create({
-            data: { id: generateId(), budgetId: id, amount: input.amount, effectiveFrom: today },
+            data: { id: generateId(), budgetId: id, amount: input.amount, effectiveFrom: effectiveDate },
           });
         }
         return tx.budget.update({
