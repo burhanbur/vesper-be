@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import type { ErrorRequestHandler } from 'express';
 import multer from 'multer';
 import { config } from '../../config/index.js';
@@ -98,6 +99,21 @@ export const errorHandler: ErrorRequestHandler = (error, request, response, next
   }
 
   const normalized = normalizeError(error);
+
+  try {
+    fs.appendFileSync(
+      '/tmp/be_errors.log',
+      JSON.stringify({
+        time: new Date().toISOString(),
+        url: request.url,
+        method: request.method,
+        status: normalized.statusCode,
+        message: normalized.message,
+        code: normalized.code,
+        error: String(error),
+      }) + '\n',
+    );
+  } catch (_) {}
 
   logger[normalized.statusCode >= 500 ? 'error' : 'warn'](
     {

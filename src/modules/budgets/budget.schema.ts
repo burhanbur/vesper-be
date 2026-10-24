@@ -1,12 +1,16 @@
 import { z } from '../../common/openapi/zod.js';
 import { isCalendarDate } from '../../common/utils/budget-period.js';
+import { sanitizeCurrencyString } from '../../common/utils/currency-sanitizer.js';
 
 export const PeriodTypeSchema = z.enum(['MONTHLY', 'WEEKLY', 'DAILY', 'ANNUAL']);
 const DateSchema = z.string().refine(isCalendarDate, 'Tanggal harus YYYY-MM-DD yang valid.');
-const AmountSchema = z
-  .string()
-  .regex(/^(0|[1-9]\d{0,17})(\.\d{1,2})?$/)
-  .refine((value) => /[1-9]/.test(value), 'Nominal harus positif.');
+const AmountSchema = z.preprocess(
+  sanitizeCurrencyString,
+  z
+    .string()
+    .regex(/^(0|[1-9]\d{0,17})(\.\d{1,2})?$/)
+    .refine((value) => /[1-9]/.test(value), 'Nominal harus positif.'),
+);
 const SequenceSchema = z
   .string()
   .regex(/^-?(0|[1-9]\d{0,18})$/)

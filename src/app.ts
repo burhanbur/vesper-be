@@ -176,6 +176,14 @@ export function createApp(dependencies: AppDependencies = defaultDependencies())
   app.set('trust proxy', config.TRUST_PROXY);
   app.disable('x-powered-by');
   app.use(requestId);
+  app.use((req, res, next) => {
+    try {
+      import('node:fs').then((fs) => {
+        fs.appendFileSync('/tmp/be_requests.log', `${new Date().toISOString()} ${req.method} ${req.url}\n`);
+      });
+    } catch (_) {}
+    next();
+  });
   app.use(requestLogger);
   app.use(helmet());
   app.use(

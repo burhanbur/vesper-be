@@ -1,17 +1,21 @@
 import { z } from '../../common/openapi/zod.js';
+import { sanitizeCurrencyString } from '../../common/utils/currency-sanitizer.js';
 
 export const TransactionVersionSchema = z
   .string()
   .regex(/^[1-9]\d{0,18}$/)
   .refine((value) => BigInt(value) <= 9223372036854775807n, 'Versi melebihi batas bigint.');
-export const TransactionAmountSchema = z
-  .string()
-  .regex(/^(?:0|[1-9]\d{0,17})(?:\.\d{1,2})?$/)
-  .refine((value) => /[1-9]/.test(value), 'Nominal harus lebih besar dari nol.')
-  .openapi({
-    description: 'Positive decimal(20,2) string; no exponent, sign, leading zeros or JSON numbers.',
-    example: '15000.00',
-  });
+export const TransactionAmountSchema = z.preprocess(
+  sanitizeCurrencyString,
+  z
+    .string()
+    .regex(/^(?:0|[1-9]\d{0,17})(?:\.\d{1,2})?$/)
+    .refine((value) => /[1-9]/.test(value), 'Nominal harus lebih besar dari nol.')
+    .openapi({
+      description: 'Positive decimal(20,2) string; no exponent, sign, leading zeros or JSON numbers.',
+      example: '15000.00',
+    }),
+);
 const ManualTypeSchema = z.enum(['INCOME', 'EXPENSE']);
 const TimestampSchema = z.iso.datetime({ offset: true, precision: 3 }).openapi({
   description: 'ISO 8601 timestamp with timezone and millisecond precision.',

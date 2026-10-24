@@ -25,7 +25,7 @@ function missing(): never {
   });
 }
 export class PrismaBudgetRepository implements BudgetRepository {
-  constructor(private readonly client: PrismaClient) {}
+  constructor(private readonly client: PrismaClient) { }
   async list(userId: string, query: ListBudgetsQuery) {
     const where: Prisma.BudgetWhereInput = {
       deletedAt: null,
