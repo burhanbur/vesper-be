@@ -40,6 +40,7 @@ export const GroupDtoSchema = z.strictObject({
   created_at: z.iso.datetime(),
   updated_at: z.iso.datetime(),
   role: z.enum(['OWNER', 'MEMBER']),
+  code: z.string().optional(),
 });
 export const CreatedGroupDtoSchema = GroupDtoSchema.extend({ code: z.string() });
 export const GroupMemberDtoSchema = z.strictObject({

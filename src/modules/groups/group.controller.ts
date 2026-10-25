@@ -31,6 +31,13 @@ export function createGroupController(service: GroupService) {
     );
     sendSuccess(request, response, { data, message: 'Berhasil bergabung dengan grup.' });
   };
+  const joinByCode: RequestHandler = async (request, response) => {
+    const data = await service.joinByCode(
+      actor(response),
+      JoinGroupSchema.parse(request.body).code,
+    );
+    sendSuccess(request, response, { data, message: 'Berhasil bergabung dengan grup.' });
+  };
   const list: RequestHandler = async (request, response) => {
     const result = await service.list(actor(response), GroupPageSchema.parse(request.query));
     sendSuccess(request, response, {
@@ -77,18 +84,18 @@ export function createGroupController(service: GroupService) {
   };
   const share =
     (remove: boolean): RequestHandler =>
-    async (request, response) => {
-      await service.share(
-        actor(response),
-        GroupParamsSchema.parse(request.params).id,
-        GroupAccountSchema.parse(request.body).account_id,
-        remove,
-      );
-      sendSuccess(request, response, {
-        data: null,
-        message: 'Pembagian akun berhasil diperbarui.',
-      });
-    };
+      async (request, response) => {
+        await service.share(
+          actor(response),
+          GroupParamsSchema.parse(request.params).id,
+          GroupAccountSchema.parse(request.body).account_id,
+          remove,
+        );
+        sendSuccess(request, response, {
+          data: null,
+          message: 'Pembagian akun berhasil diperbarui.',
+        });
+      };
   const categories: RequestHandler = async (request, response) => {
     const result = await service.categories(
       actor(response),
@@ -115,36 +122,36 @@ export function createGroupController(service: GroupService) {
   };
   const changeCategory =
     (remove: boolean): RequestHandler =>
-    async (request, response) => {
-      const { id } = GroupParamsSchema.parse(request.params);
-      const input = remove
-        ? ManageGroupCategorySchema.parse(request.body)
-        : PatchGroupCategorySchema.parse(request.body);
-      const { group_category_id: categoryId, ...patch } = input;
-      const data = await service.changeCategory(
-        actor(response),
-        id,
-        categoryId,
-        remove ? undefined : patch,
-      );
-      sendSuccess(request, response, { data, message: 'Kategori grup berhasil diperbarui.' });
-    };
+      async (request, response) => {
+        const { id } = GroupParamsSchema.parse(request.params);
+        const input = remove
+          ? ManageGroupCategorySchema.parse(request.body)
+          : PatchGroupCategorySchema.parse(request.body);
+        const { group_category_id: categoryId, ...patch } = input;
+        const data = await service.changeCategory(
+          actor(response),
+          id,
+          categoryId,
+          remove ? undefined : patch,
+        );
+        sendSuccess(request, response, { data, message: 'Kategori grup berhasil diperbarui.' });
+      };
   const mapping =
     (remove: boolean): RequestHandler =>
-    async (request, response) => {
-      const { id, gcId } = GroupCategoryParamsSchema.parse(request.params);
-      await service.mapping(
-        actor(response),
-        id,
-        gcId,
-        GroupMappingSchema.parse(request.body).user_category_id,
-        remove,
-      );
-      sendSuccess(request, response, {
-        data: null,
-        message: 'Pemetaan kategori berhasil diperbarui.',
-      });
-    };
+      async (request, response) => {
+        const { id, gcId } = GroupCategoryParamsSchema.parse(request.params);
+        await service.mapping(
+          actor(response),
+          id,
+          gcId,
+          GroupMappingSchema.parse(request.body).user_category_id,
+          remove,
+        );
+        sendSuccess(request, response, {
+          data: null,
+          message: 'Pemetaan kategori berhasil diperbarui.',
+        });
+      };
   const report: RequestHandler = async (request, response) => {
     const data = await service.report(
       actor(response),
@@ -156,6 +163,7 @@ export function createGroupController(service: GroupService) {
   return {
     create,
     join,
+    joinByCode,
     list,
     members,
     accounts,

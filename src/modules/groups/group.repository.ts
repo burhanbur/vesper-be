@@ -23,6 +23,7 @@ import type {
 export interface GroupRepository {
   create(userId: string, name: string, code: string): Promise<GroupDto & { code: string }>;
   join(userId: string, id: string, code: string): Promise<GroupDto>;
+  joinByCode(userId: string, code: string): Promise<GroupDto>;
   list(userId: string, page: GroupPage): Promise<{ items: GroupDto[]; total: number }>;
   members(
     userId: string,
@@ -90,6 +91,7 @@ function groupDto(group: Group, role: GroupRole): GroupDto {
     role,
     created_at: group.createdAt.toISOString(),
     updated_at: group.updatedAt.toISOString(),
+    ...(role === 'OWNER' ? { code: group.code } : {}),
   };
 }
 function categoryDto(category: GroupCategory): GroupCategoryDto {
@@ -121,7 +123,7 @@ async function lockGroup(tx: Prisma.TransactionClient, id: string): Promise<void
   await tx.$queryRaw`SELECT id FROM groups WHERE id = ${id}::uuid FOR UPDATE`;
 }
 export class PrismaGroupRepository implements GroupRepository {
-  constructor(private readonly client: PrismaClient) {}
+  constructor(private readonly client: PrismaClient) { }
   create(userId: string, name: string, code: string) {
     return this.client.$transaction(async (tx) => {
       const group = await tx.group.create({
@@ -142,6 +144,22 @@ export class PrismaGroupRepository implements GroupRepository {
         const member = await tx.userGroup.upsert({
           where: { userId_groupId: { userId, groupId: id } },
           create: { id: generateId(), userId, groupId: id, role: 'MEMBER', createdBy: userId },
+          update: {},
+        });
+        return groupDto(group, member.role);
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
+  }
+  joinByCode(userId: string, code: string) {
+    return this.client.$transaction(
+      async (tx) => {
+        const group = await tx.group.findFirst({ where: { code, ...activeGroup } });
+        if (!group) deny();
+        await lockGroup(tx, group.id);
+        const member = await tx.userGroup.upsert({
+          where: { userId_groupId: { userId, groupId: group.id } },
+          create: { id: generateId(), userId, groupId: group.id, role: 'MEMBER', createdBy: userId },
           update: {},
         });
         return groupDto(group, member.role);

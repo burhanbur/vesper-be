@@ -48,6 +48,7 @@ function fixture() {
   const repository = {
     create: vi.fn(),
     join: vi.fn(),
+    joinByCode: vi.fn(),
     list: vi.fn(),
     members: vi.fn(),
     share: vi.fn(),
@@ -63,6 +64,7 @@ function fixture() {
     })),
   } satisfies GroupRepository;
   const app = express();
+  app.use(express.json());
   app.use('/api/v1/groups', createGroupRouter(repository, {} as AuthService));
   app.use(errorHandler);
   return { app, repository };
@@ -202,6 +204,28 @@ describe('group management read HTTP contracts', () => {
     expect(GroupCategoryMappingDtoSchema.safeParse({ ...mapping, user_id: actor }).success).toBe(
       false,
     );
+  });
+
+  it('allows joining via code at /api/v1/groups/join', async () => {
+    const f = fixture();
+    const joined = {
+      id: group,
+      name: 'Family Group',
+      is_active: true,
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+      role: 'MEMBER' as const,
+    };
+    f.repository.joinByCode.mockResolvedValue(joined);
+
+    const response = await request(f.app)
+      .post('/api/v1/groups/join')
+      .set('Authorization', 'Bearer test-session')
+      .send({ code: 'ABC123XYZ789' })
+      .expect(200);
+
+    expect(response.body.data).toEqual(joined);
+    expect(f.repository.joinByCode).toHaveBeenCalledWith(actor, 'ABC123XYZ789');
   });
 
   it('documents authenticated paginated GET contracts separately from mutations', () => {

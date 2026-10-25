@@ -9,7 +9,7 @@ export const CreateTransferSchema = z
     from_account_id: z.uuid(),
     to_account_id: z.uuid(),
     amount: TransactionAmountSchema,
-    transacted_at: z.iso.datetime({ offset: true, precision: 3 }),
+    transacted_at: z.iso.datetime({ offset: true }),
     description: z.string().trim().min(1).max(5000).nullable().default(null),
   })
   .refine((value) => value.from_account_id !== value.to_account_id, {

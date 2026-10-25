@@ -12,13 +12,14 @@ export const TransactionAmountSchema = z.preprocess(
     .regex(/^(?:0|[1-9]\d{0,17})(?:\.\d{1,2})?$/)
     .refine((value) => /[1-9]/.test(value), 'Nominal harus lebih besar dari nol.')
     .openapi({
-      description: 'Positive decimal(20,2) string; no exponent, sign, leading zeros or JSON numbers.',
+      description:
+        'Positive decimal(20,2) string; no exponent, sign, leading zeros or JSON numbers.',
       example: '15000.00',
     }),
 );
 const ManualTypeSchema = z.enum(['INCOME', 'EXPENSE']);
-const TimestampSchema = z.iso.datetime({ offset: true, precision: 3 }).openapi({
-  description: 'ISO 8601 timestamp with timezone and millisecond precision.',
+const TimestampSchema = z.iso.datetime({ offset: true }).openapi({
+  description: 'ISO 8601 timestamp with timezone.',
   example: '2026-10-04T10:00:00.000Z',
 });
 const fields = {

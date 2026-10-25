@@ -3,7 +3,11 @@ import { OpenAPIRegistry, OpenApiGeneratorV31 } from '@asteasolutions/zod-to-ope
 import { Prisma, type PrismaClient } from '../../src/generated/prisma/client.js';
 import { PrismaTransactionRepository } from '../../src/modules/transactions/transaction.repository.js';
 import { registerTransactionOpenApi } from '../../src/modules/transactions/transaction.openapi.js';
-import { BatchCreateTransactionsSchema } from '../../src/modules/transactions/transaction.schema.js';
+import {
+  BatchCreateTransactionsSchema,
+  CreateTransactionSchema,
+} from '../../src/modules/transactions/transaction.schema.js';
+import { PushItemSchema } from '../../src/modules/sync/sync.schema.js';
 
 const ledger = vi.hoisted(() => ({ lock: vi.fn(), recompute: vi.fn() }));
 vi.mock('../../src/modules/transactions/ledger.js', () => ({
@@ -240,5 +244,25 @@ describe('batch OpenAPI contract', () => {
       BatchCreateTransactionsSchema.safeParse({ items: Array.from({ length: 1001 }, () => item) })
         .success,
     ).toBe(false);
+  });
+});
+
+describe('transaction datetime validation', () => {
+  it.each([
+    '2026-10-04T10:00:00.000Z',
+    '2026-10-04T10:00:00.123456Z',
+    '2026-10-04T10:00:00Z',
+    '2026-10-04T17:00:00+07:00',
+  ])('accepts valid ISO datetime: %s', (transacted_at) => {
+    expect(CreateTransactionSchema.safeParse({ ...item, transacted_at }).success).toBe(true);
+    expect(
+      PushItemSchema.safeParse({
+        entity_type: 'transactions',
+        entity_id: '019a4fff-7000-7000-8000-000000000001',
+        operation: 'CREATE',
+        client_version: '0',
+        payload: { ...item, transacted_at },
+      }).success,
+    ).toBe(true);
   });
 });

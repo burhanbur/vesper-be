@@ -44,7 +44,7 @@ export const BillCommandSchema = z
     amount: GoalMoneySchema.nullable(),
     record_id: z.uuid().nullable(),
     ledger_id: z.uuid(),
-    transacted_at: z.iso.datetime({ precision: 3 }),
+    transacted_at: z.iso.datetime({ offset: true }),
     note: z.string().trim().max(500),
   })
   .superRefine((v, ctx) => {

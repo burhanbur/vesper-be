@@ -113,7 +113,9 @@ export const errorHandler: ErrorRequestHandler = (error, request, response, next
         error: String(error),
       }) + '\n',
     );
-  } catch (_) {}
+  } catch {
+    // Ignore fallback log failure
+  }
 
   logger[normalized.statusCode >= 500 ? 'error' : 'warn'](
     {

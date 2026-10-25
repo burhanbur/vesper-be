@@ -43,6 +43,12 @@ export function createGroupRouter(repository: GroupRepository, authService: Auth
   router.get('/', validateRequest({ query: GroupPageSchema }), controller.list);
   router.post('/', validateRequest({ body: CreateGroupSchema }), controller.create);
   router.post(
+    '/join',
+    joinLimit,
+    validateRequest({ body: JoinGroupSchema }),
+    controller.joinByCode,
+  );
+  router.post(
     '/:id/join',
     joinLimit,
     validateRequest({ params: GroupParamsSchema, body: JoinGroupSchema }),
