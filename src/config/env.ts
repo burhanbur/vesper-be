@@ -13,7 +13,14 @@ const envSchema = z
     APP_NAME: z.string().min(1).default('express-starter-kit'),
     HOST: z.string().min(1).default('0.0.0.0'),
     PORT: z.coerce.number().int().min(1).max(65_535).default(3000),
-    TRUST_PROXY: booleanFromString('false'),
+    TRUST_PROXY: z
+      .union([z.enum(['true', 'false']), z.string().regex(/^[1-9]\d?$/)])
+      .default('false')
+      .transform((value) => {
+        if (value === 'true') return true;
+        if (value === 'false') return false;
+        return Number(value);
+      }),
     BODY_LIMIT_BYTES: z.coerce.number().int().positive().max(10_485_760).default(1_048_576),
     HTTP_REQUEST_TIMEOUT_MS: z.coerce.number().int().positive().default(15_000),
     HTTP_HEADERS_TIMEOUT_MS: z.coerce.number().int().positive().default(16_000),

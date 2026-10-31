@@ -1,17 +1,72 @@
 services:
-  redis:
-    image: redis:7
-    container_name: vesper-redis
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: vesper-api:production
     restart: unless-stopped
+    env_file:
+      - .env.production
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: '3000'
+      TRUST_PROXY: '1'
+      REDIS_URL: redis://redis:6379
     ports:
-      - '6370:6379'
+      - '127.0.0.1:3000:3000'
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    depends_on:
+      redis:
+        condition: service_healthy
+    volumes:
+      - uploads:/app/storage/uploads
+    security_opt:
+      - no-new-privileges:true
+    logging:
+      driver: json-file
+      options:
+        max-size: '10m'
+        max-file: '3'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'node',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
+
+  migrate:
+    profiles: ['tools']
+    image: vesper-api:migration
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: migration
+    env_file:
+      - .env.production
+    extra_hosts:
+      - 'host.docker.internal:host-gateway'
+    command: ['npm', 'run', 'db:deploy']
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ['redis-server', '--appendonly', 'yes']
     volumes:
       - redis_data:/data
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s
-      timeout: 5s
+      timeout: 3s
       retries: 10
 
 volumes:
   redis_data:
+  uploads:

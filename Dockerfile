@@ -1,16 +1,20 @@
-FROM node:22-alpine AS dependencies
+FROM node:24-alpine AS dependencies
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
-FROM dependencies AS builder
-COPY tsconfig.json tsconfig.build.json ./
+FROM dependencies AS migration
 COPY prisma.config.ts ./
 COPY prisma ./prisma
-COPY src ./src
-RUN npm run db:generate && npm run build && npm prune --omit=dev
+RUN npm run db:generate
+CMD ["npm", "run", "db:deploy"]
 
-FROM node:22-alpine AS runner
+FROM migration AS builder
+COPY tsconfig.json tsconfig.build.json ./
+COPY src ./src
+RUN npm run build && npm prune --omit=dev
+
+FROM node:24-alpine AS runner
 ENV NODE_ENV=production
 WORKDIR /app
 RUN addgroup --system --gid 1001 nodejs \

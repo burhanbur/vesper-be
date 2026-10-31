@@ -24,6 +24,19 @@ function invalidConfig(overrides: NodeJS.ProcessEnv): string {
 }
 
 describe('auth environment configuration', () => {
+  it.each([
+    ['false', false],
+    ['true', true],
+    ['1', 1],
+    ['2', 2],
+  ])('parses trusted proxy setting %s', (value, expected) => {
+    expect(loadConfig({ ...BASE_ENV, TRUST_PROXY: String(value) }).TRUST_PROXY).toBe(expected);
+  });
+
+  it.each(['0', '-1', '1.5', '100', 'untrusted'])('rejects invalid proxy setting %s', (value) => {
+    expect(invalidConfig({ TRUST_PROXY: value })).toContain('TRUST_PROXY');
+  });
+
   it('uses separate access and refresh JWT secrets', () => {
     const config = loadConfig(BASE_ENV);
 
