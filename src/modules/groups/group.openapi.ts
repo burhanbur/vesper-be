@@ -1,4 +1,5 @@
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
+import { registerPocketOpenApi } from './pocket.openapi.js';
 import {
   CollaborationQuerySchema,
   CollaborationDtoSchema,
@@ -31,6 +32,7 @@ import {
 } from './group.schema.js';
 
 export function registerGroupOpenApi(registry: OpenAPIRegistry): void {
+  registerPocketOpenApi(registry);
   const id = '019a0000-0000-7000-8000-000000000001';
   const timestamp = '2026-10-04T10:00:00.000Z';
   const group = {
@@ -232,7 +234,7 @@ export function registerGroupOpenApi(registry: OpenAPIRegistry): void {
         path: '/{id}/categories',
         operationId: 'createGroupCategory',
         summary: 'Create group category',
-        description: 'OWNER only. Type is the exact ERD INCOME/EXPENSE field.',
+        description: 'Any active OWNER or MEMBER may create a category. Type is the exact ERD INCOME/EXPENSE field.',
         params: GroupParamsSchema,
         body: CreateGroupCategorySchema,
         schema: GroupCategoryDtoSchema,

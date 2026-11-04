@@ -348,7 +348,7 @@ export class PrismaGroupRepository implements GroupRepository {
   createCategory(userId: string, id: string, input: GroupCategoryInput) {
     return this.client.$transaction(async (tx) => {
       await lockGroup(tx, id);
-      await requireMember(tx, userId, id, true);
+      await requireMember(tx, userId, id);
       return categoryDto(
         await tx.groupCategory.create({
           data: { id: generateId(), groupId: id, ...input, createdBy: userId, updatedBy: userId },

@@ -100,6 +100,7 @@ model Group {
   accounts   GroupAccount[]
   categories GroupCategory[]
   mappings   MappingGroupCategory[]
+  pockets    GroupPocket[]
 
   @@index([isActive, deletedAt, createdAt, id])
   @@index([createdBy])
@@ -137,6 +138,39 @@ model GroupAccount {
   @@unique([groupId, accountId])
   @@index([accountId])
   @@map("group_accounts")
+}
+
+model GroupPocket {
+  id          String   @id @db.Uuid
+  groupId     String   @map("group_id") @db.Uuid
+  name        String   @db.VarChar(120)
+  description String?  @db.Text
+  createdBy   String   @map("created_by") @db.Uuid
+  updatedBy   String   @map("updated_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(3)
+  group       Group    @relation(fields: [groupId], references: [id], onDelete: Restrict)
+  accounts    GroupPocketAccount[]
+
+  @@unique([groupId, id])
+  @@index([groupId, createdAt, id])
+  @@map("group_pockets")
+}
+
+model GroupPocketAccount {
+  id        String   @id @db.Uuid
+  groupId   String   @map("group_id") @db.Uuid
+  pocketId  String   @map("pocket_id") @db.Uuid
+  accountId String   @map("account_id") @db.Uuid
+  createdBy String   @map("created_by") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(3)
+  pocket    GroupPocket @relation(fields: [groupId, pocketId], references: [groupId, id], onDelete: Restrict)
+  account   Account @relation(fields: [accountId], references: [id], onDelete: Restrict)
+
+  @@unique([groupId, accountId])
+  @@index([groupId, pocketId])
+  @@index([accountId])
+  @@map("group_pocket_accounts")
 }
 
 model GroupCategory {
@@ -306,6 +340,7 @@ model Account {
   cashInvestmentTransactions InvestmentTransaction[]  @relation("InvestmentCashAccount")
   portfolioSnapshots         PortfolioDailySnapshot[]
   groupAccounts              GroupAccount[]
+  pocketAccounts             GroupPocketAccount[]
 
   @@index([userId, deletedAt, createdAt, id])
   @@index([userId, deletedAt, accountTypeId])

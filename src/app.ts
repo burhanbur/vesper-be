@@ -21,6 +21,8 @@ import { SyncRepository } from './modules/sync/sync.repository.js';
 import { createSyncRouter } from './modules/sync/sync.route.js';
 import { PrismaGroupRepository, type GroupRepository } from './modules/groups/group.repository.js';
 import { createGroupRouter } from './modules/groups/group.route.js';
+import { PrismaPocketRepository, type PocketRepository } from './modules/groups/pocket.repository.js';
+import { createPocketRouter } from './modules/groups/pocket.route.js';
 import express, { type Express } from 'express';
 import helmet from 'helmet';
 import { AppError } from './common/errors/app-error.js';
@@ -129,6 +131,7 @@ export type AppDependencies = {
   budgetRepository?: BudgetRepository;
   investmentRepository?: InvestmentRepository;
   groupRepository?: GroupRepository;
+  pocketRepository?: PocketRepository;
   collaborationRepository?: CollaborationRepository;
   syncRepository?: SyncRepository;
   notificationRepository?: NotificationRepository;
@@ -160,6 +163,7 @@ function defaultDependencies(): AppDependencies {
     budgetRepository: new PrismaBudgetRepository(prisma),
     investmentRepository: new PrismaInvestmentRepository(syncClient(prisma, null, false)),
     groupRepository: new PrismaGroupRepository(synced),
+    pocketRepository: new PrismaPocketRepository(synced),
     collaborationRepository: new CollaborationRepository(synced),
     health: {
       checkDatabase: checkDatabaseConnection,
@@ -302,6 +306,9 @@ export function createApp(dependencies: AppDependencies = defaultDependencies())
 
   if (dependencies.groupRepository) {
     app.use('/api/v1/groups', createGroupRouter(dependencies.groupRepository, authService));
+  }
+  if (dependencies.pocketRepository) {
+    app.use('/api/v1/groups', createPocketRouter(dependencies.pocketRepository, authService));
   }
 
   if (dependencies.syncRepository) {

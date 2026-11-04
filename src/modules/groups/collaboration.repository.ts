@@ -3,7 +3,7 @@ import { activeGroup, activeMember, lockOwner } from '../../common/authorization
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
 
 export class CollaborationRepository {
-  constructor(private readonly client: PrismaClient) {}
+  constructor(private readonly client: PrismaClient) { }
 
   private async authorize(tx: Prisma.TransactionClient, actor: string, groupId: string) {
     const member = await tx.userGroup.findFirst({
@@ -105,6 +105,7 @@ export class CollaborationRepository {
         } else {
           // Membership is a grant table without tombstones. Personal data stays untouched.
           // Remove old opt-ins so rejoining never silently restores historical sharing.
+          await tx.groupPocketAccount.deleteMany({ where: { groupId, account: { userId: target } } });
           await tx.groupAccount.deleteMany({ where: { groupId, account: { userId: target } } });
           await tx.mappingGroupCategory.deleteMany({
             where: { groupId, userCategory: { userId: target } },
