@@ -1,15 +1,17 @@
 import type { OpenAPIRegistry } from '@asteasolutions/zod-to-openapi';
 import { createSuccessResponseSchema, ErrorResponseSchema } from '../../common/contracts/api-response.schema.js';
 import { z } from '../../common/openapi/zod.js';
-import { CreatePocketSchema, PocketAccountInputSchema, PocketDtoSchema, PocketGroupParamsSchema, PocketParamsSchema } from './pocket.schema.js';
+import { CreatePocketSchema, PocketAccountInputSchema, PocketDtoSchema, PocketGroupParamsSchema, PocketParamsSchema, UpdatePocketSchema } from './pocket.schema.js';
 
 export function registerPocketOpenApi(registry: OpenAPIRegistry): void {
-    const description = 'Active group membership required; no additional RBAC. Full balances only, no funds moved. Live owned leaf accounts only; one pocket per account per group. Assignment atomically creates group_accounts consent if absent. Unlink preserves that grant. Reads require current consent and active owner membership, omit invalid/non-leaf accounts, expose owner name and Parent - Child display name but never account number. Decimal strings, totals grouped by currency. No-store. POST assignment is idempotent; another pocket gives 409. DELETE is idempotent and accepts tombstoned/non-leaf owned accounts for cleanup.';
+    const description = 'Active group membership required; no additional RBAC. Full balances only, no funds moved. Live owned leaf accounts only; one pocket per account per group. Assignment atomically creates group_accounts consent if absent. Unlink preserves that grant. Reads require current consent and active owner membership, omit invalid/non-leaf accounts, expose owner name and Parent - Child display name but never account number. Decimal strings, totals grouped by currency. No-store. POST assignment is idempotent; another pocket gives 409. DELETE is idempotent and accepts tombstoned/non-leaf owned accounts for cleanup. Pocket editing and deletion modify or remove the envelope and unlink accounts without altering private financial records.';
     const id = '019a0000-0000-7000-8000-000000000001';
     const pocket = { id, name: 'Holiday', description: null, balances: [], accounts: [] };
     const routes = [
         { method: 'get' as const, path: '/api/v1/groups/{groupId}/pockets', operationId: 'listGroupPockets', summary: 'Read purpose-based group pockets', params: PocketGroupParamsSchema, schema: z.array(PocketDtoSchema), example: [pocket] },
         { method: 'post' as const, path: '/api/v1/groups/{groupId}/pockets', operationId: 'createGroupPocket', summary: 'Create a named group pocket', params: PocketGroupParamsSchema, body: CreatePocketSchema, schema: PocketDtoSchema, example: pocket },
+        { method: 'patch' as const, path: '/api/v1/groups/{groupId}/pockets/{pocketId}', operationId: 'updateGroupPocket', summary: 'Update a group pocket', params: PocketParamsSchema, body: UpdatePocketSchema, schema: PocketDtoSchema, example: pocket },
+        { method: 'delete' as const, path: '/api/v1/groups/{groupId}/pockets/{pocketId}', operationId: 'deleteGroupPocket', summary: 'Delete a group pocket', params: PocketParamsSchema, schema: z.null(), example: null },
         { method: 'post' as const, path: '/api/v1/groups/{groupId}/pockets/{pocketId}/accounts', operationId: 'assignGroupPocketAccount', summary: 'Assign an owned leaf account', params: PocketParamsSchema, body: PocketAccountInputSchema, schema: z.null(), example: null },
         { method: 'delete' as const, path: '/api/v1/groups/{groupId}/pockets/{pocketId}/accounts', operationId: 'unassignGroupPocketAccount', summary: 'Unlink an owned account without revoking sharing', params: PocketParamsSchema, body: PocketAccountInputSchema, schema: z.null(), example: null },
     ];

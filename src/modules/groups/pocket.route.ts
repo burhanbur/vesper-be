@@ -5,7 +5,7 @@ import { createRequireAuthentication } from '../auth/auth.middleware.js';
 import type { AuthService } from '../auth/auth.service.js';
 import type { AuthPrincipal } from '../auth/auth.types.js';
 import type { PocketRepository } from './pocket.repository.js';
-import { CreatePocketSchema, PocketAccountInputSchema, PocketGroupParamsSchema, PocketParamsSchema } from './pocket.schema.js';
+import { CreatePocketSchema, PocketAccountInputSchema, PocketGroupParamsSchema, PocketParamsSchema, UpdatePocketSchema } from './pocket.schema.js';
 
 export function createPocketRouter(repository: PocketRepository, auth: AuthService): Router {
     const router = Router();
@@ -19,6 +19,16 @@ export function createPocketRouter(repository: PocketRepository, auth: AuthServi
     router.post('/:groupId/pockets', validateRequest({ params: PocketGroupParamsSchema, body: CreatePocketSchema }), async (request, response) => {
         const data = await repository.create(actor(response), PocketGroupParamsSchema.parse(request.params).groupId, CreatePocketSchema.parse(request.body));
         sendSuccess(request, response, { data, statusCode: 201, message: 'Kantong grup berhasil dibuat.' });
+    });
+    router.patch('/:groupId/pockets/:pocketId', validateRequest({ params: PocketParamsSchema, body: UpdatePocketSchema }), async (request, response) => {
+        const { groupId, pocketId } = PocketParamsSchema.parse(request.params);
+        const data = await repository.update(actor(response), groupId, pocketId, UpdatePocketSchema.parse(request.body));
+        sendSuccess(request, response, { data, message: 'Kantong grup berhasil diperbarui.' });
+    });
+    router.delete('/:groupId/pockets/:pocketId', validateRequest({ params: PocketParamsSchema }), async (request, response) => {
+        const { groupId, pocketId } = PocketParamsSchema.parse(request.params);
+        await repository.delete(actor(response), groupId, pocketId);
+        sendSuccess(request, response, { data: null, message: 'Kantong grup berhasil dihapus.' });
     });
     const assign = (remove: boolean): RequestHandler => async (request, response) => {
         const { groupId, pocketId } = PocketParamsSchema.parse(request.params);

@@ -2,11 +2,13 @@ import { activeGroup, activeMember, lockOwner } from '../../common/authorization
 import { AppError } from '../../common/errors/app-error.js';
 import { generateId } from '../../common/utils/id.js';
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
-import type { CreatePocketInput, PocketDto } from './pocket.schema.js';
+import type { CreatePocketInput, PocketDto, UpdatePocketInput } from './pocket.schema.js';
 
 export interface PocketRepository {
     read(actor: string, groupId: string): Promise<PocketDto[]>;
     create(actor: string, groupId: string, input: CreatePocketInput): Promise<PocketDto>;
+    update(actor: string, groupId: string, pocketId: string, input: UpdatePocketInput): Promise<PocketDto>;
+    delete(actor: string, groupId: string, pocketId: string): Promise<void>;
     assign(actor: string, groupId: string, pocketId: string, accountId: string, remove: boolean): Promise<void>;
 }
 function deny(): never {
@@ -67,6 +69,60 @@ export class PrismaPocketRepository implements PocketRepository {
                 select: { id: true, name: true, description: true },
             });
             return { ...pocket, accounts: [], balances: [] };
+        }, { isolationLevel: 'ReadCommitted' });
+    }
+    update(actor: string, groupId: string, pocketId: string, input: UpdatePocketInput) {
+        return this.client.$transaction(async (tx) => {
+            await lockGroup(tx, groupId);
+            await authorize(tx, actor, groupId);
+            const existing = await tx.groupPocket.findFirst({
+                where: { id: pocketId, groupId },
+                select: { id: true },
+            });
+            if (!existing) {
+                throw new AppError({ statusCode: 404, code: 'GROUP_POCKET_NOT_FOUND', message: 'Kantong grup tidak ditemukan.' });
+            }
+            const updated = await tx.groupPocket.update({
+                where: { id: pocketId },
+                data: {
+                    ...(input.name !== undefined ? { name: input.name } : {}),
+                    ...(input.description !== undefined ? { description: input.description } : {}),
+                    updatedBy: actor,
+                },
+                select: { id: true, name: true, description: true },
+            });
+            const rows = await tx.$queryRaw<(PocketDto['accounts'][number])[]>(Prisma.sql`
+        SELECT a.id AS account_id,
+          CASE WHEN p.id IS NULL THEN a.name ELSE p.name || ' - ' || a.name END AS name,
+          a.user_id AS owner_user_id, u.name AS owner_name, a.currency, a.balance::text AS balance
+        FROM group_pocket_accounts pa
+        JOIN accounts a ON a.id = pa.account_id AND a.deleted_at IS NULL
+        JOIN account_types at ON at.id = a.account_type_id AND at.user_id = a.user_id AND at.deleted_at IS NULL
+        JOIN users u ON u.id = a.user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL
+        JOIN user_groups ug ON ug.user_id = a.user_id AND ug.group_id = pa.group_id
+        JOIN group_accounts ga ON ga.account_id = a.id AND ga.group_id = pa.group_id
+        LEFT JOIN accounts p ON p.id = a.parent_account_id
+        WHERE pa.group_id = ${groupId}::uuid AND pa.pocket_id = ${pocketId}::uuid
+          AND (a.parent_account_id IS NULL OR (p.deleted_at IS NULL AND p.user_id = a.user_id
+            AND EXISTS (SELECT 1 FROM account_types pt WHERE pt.id = p.account_type_id AND pt.user_id = a.user_id AND pt.deleted_at IS NULL)))
+          AND NOT EXISTS (SELECT 1 FROM accounts child WHERE child.parent_account_id = a.id AND child.deleted_at IS NULL)
+        ORDER BY pa.created_at, pa.id`);
+            return { ...updated, accounts: rows, balances: pocketBalances(rows) };
+        }, { isolationLevel: 'ReadCommitted' });
+    }
+    delete(actor: string, groupId: string, pocketId: string) {
+        return this.client.$transaction(async (tx) => {
+            await lockGroup(tx, groupId);
+            await authorize(tx, actor, groupId);
+            const existing = await tx.groupPocket.findFirst({
+                where: { id: pocketId, groupId },
+                select: { id: true },
+            });
+            if (!existing) {
+                throw new AppError({ statusCode: 404, code: 'GROUP_POCKET_NOT_FOUND', message: 'Kantong grup tidak ditemukan.' });
+            }
+            await tx.groupPocketAccount.deleteMany({ where: { groupId, pocketId } });
+            await tx.groupPocket.delete({ where: { id: pocketId } });
         }, { isolationLevel: 'ReadCommitted' });
     }
     assign(actor: string, groupId: string, pocketId: string, accountId: string, remove: boolean) {

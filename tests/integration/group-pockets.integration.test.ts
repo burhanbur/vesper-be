@@ -58,6 +58,12 @@ it('persists purpose pockets, exact transparent balances, ownership, consent, le
     await repository.assign(member, groupId, pocket.id, child, true);
     await client.account.update({ where: { id: usd }, data: { deletedAt: new Date() } });
     expect((await repository.read(owner, groupId)).find((item) => item.id === pocket.id)?.balances).toEqual([{ currency: 'IDR', balance: '0.09' }]);
+    // Pocket edit and delete
+    const updated = await repository.update(owner, groupId, other.id, { name: 'Emergency Fund', description: 'Updated' });
+    expect(updated.name).toBe('Emergency Fund');
+    expect(updated.description).toBe('Updated');
+    await repository.delete(owner, groupId, other.id);
+    expect((await repository.read(owner, groupId)).some((p) => p.id === other.id)).toBe(false);
     await new CollaborationRepository(syncClient(client)).manage(owner, groupId, member, 'REMOVE');
     expect(await client.groupPocketAccount.count({ where: { groupId } })).toBe(0);
     await expect(repository.read(member, groupId)).rejects.toMatchObject({ statusCode: 403 });

@@ -25,6 +25,8 @@ function fixture() {
     const repository = {
         read: vi.fn<PocketRepository['read']>(async () => [dto]),
         create: vi.fn<PocketRepository['create']>(async () => dto),
+        update: vi.fn<PocketRepository['update']>(async () => ({ ...dto, name: 'Renamed' })),
+        delete: vi.fn<PocketRepository['delete']>(async () => { return undefined; }),
         assign: vi.fn<PocketRepository['assign']>(async () => { return undefined; }),
     };
     const app = express(); app.use(express.json());
@@ -58,17 +60,23 @@ describe('group pockets contract', () => {
         expect(read.headers['cache-control']).toBe('no-store');
         await request(f.app).post(base).set('Authorization', 'Bearer test').send({ name: 'Travel' }).expect(201);
         expect(f.repository.create).toHaveBeenCalledWith(actor, group, { name: 'Travel' });
+        await request(f.app).patch(`${base}/${pocket}`).set('Authorization', 'Bearer test').send({ name: 'Renamed' }).expect(200);
+        expect(f.repository.update).toHaveBeenCalledWith(actor, group, pocket, { name: 'Renamed' });
+        await request(f.app).delete(`${base}/${pocket}`).set('Authorization', 'Bearer test').expect(200);
+        expect(f.repository.delete).toHaveBeenCalledWith(actor, group, pocket);
         await request(f.app).post(`${base}/${pocket}/accounts`).set('Authorization', 'Bearer test').send({ account_id: account }).expect(200);
         expect(f.repository.assign).toHaveBeenLastCalledWith(actor, group, pocket, account, false);
         await request(f.app).delete(`${base}/${pocket}/accounts`).set('Authorization', 'Bearer test').send({ account_id: account }).expect(200);
         expect(f.repository.assign).toHaveBeenLastCalledWith(actor, group, pocket, account, true);
         await request(f.app).post(`${base}/${pocket}/accounts`).set('Authorization', 'Bearer test').send({ account_id: 'invalid' }).expect(422);
     });
-    it('registers all four operations with the shared schemas', () => {
+    it('registers all operations with the shared schemas', () => {
         const registry = new OpenAPIRegistry(); registerPocketOpenApi(registry);
         const doc = new OpenApiGeneratorV31(registry.definitions).generateDocument({ openapi: '3.1.0', info: { title: 'Pockets', version: '1' } });
         expect(doc.paths?.['/api/v1/groups/{groupId}/pockets']?.get?.operationId).toBe('listGroupPockets');
         expect(doc.paths?.['/api/v1/groups/{groupId}/pockets']?.post?.responses?.['201']).toBeDefined();
+        expect(doc.paths?.['/api/v1/groups/{groupId}/pockets/{pocketId}']?.patch?.operationId).toBe('updateGroupPocket');
+        expect(doc.paths?.['/api/v1/groups/{groupId}/pockets/{pocketId}']?.delete?.operationId).toBe('deleteGroupPocket');
         expect(doc.paths?.['/api/v1/groups/{groupId}/pockets/{pocketId}/accounts']?.delete?.requestBody).toBeDefined();
     });
 });
