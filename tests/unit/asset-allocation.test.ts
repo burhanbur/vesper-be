@@ -15,6 +15,7 @@ function fixture(): NetWorthSource {
     accounts: [
       {
         id: 'cash',
+        isCreditCard: false,
         balance: decimal('100'),
         isIncludeTotal: true,
         children: [],
@@ -22,6 +23,7 @@ function fixture(): NetWorthSource {
       },
       {
         id: 'a',
+        isCreditCard: false,
         balance: decimal('10'),
         isIncludeTotal: true,
         children: [],
@@ -29,6 +31,7 @@ function fixture(): NetWorthSource {
       },
       {
         id: 'b',
+        isCreditCard: false,
         balance: decimal('0'),
         isIncludeTotal: true,
         children: [],
@@ -36,6 +39,7 @@ function fixture(): NetWorthSource {
       },
       {
         id: 'negative',
+        isCreditCard: false,
         balance: decimal('-20'),
         isIncludeTotal: true,
         children: [],
@@ -43,6 +47,7 @@ function fixture(): NetWorthSource {
       },
       {
         id: 'parent',
+        isCreditCard: false,
         balance: decimal('9999'),
         isIncludeTotal: true,
         children: [{ id: 'cash' }],

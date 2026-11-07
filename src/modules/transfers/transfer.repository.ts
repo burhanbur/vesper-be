@@ -1,4 +1,5 @@
 import { AppError } from '../../common/errors/app-error.js';
+import { assertCardTransfer } from '../accounts/credit-card-policy.js';
 import { generateId } from '../../common/utils/id.js';
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
 import { lockLedgerAccounts, recomputeLedgerBalances } from '../transactions/ledger.js';
@@ -14,7 +15,7 @@ export interface TransferRepository {
   create(userId: string, id: string, input: CreateTransferInput): Promise<TransferRecord>;
 }
 export class PrismaTransferRepository implements TransferRepository {
-  constructor(private readonly client: PrismaClient) {}
+  constructor(private readonly client: PrismaClient) { }
 
   create(userId: string, id: string, input: CreateTransferInput): Promise<TransferRecord> {
     return this.persist(userId, id, input);
@@ -51,6 +52,12 @@ export class PrismaTransferRepository implements TransferRepository {
             code: 'TRANSFER_CURRENCY_MISMATCH',
             message: 'Akun asal dan tujuan harus memiliki mata uang yang sama.',
           });
+        }
+        if (from.isCreditCard || to.isCreditCard) {
+          const sourceType = await tx.accountType.findFirst({
+            where: { id: from.accountTypeId, deletedAt: null },
+          });
+          assertCardTransfer(userId, from, to, sourceType?.category);
         }
         const amount = new Prisma.Decimal(input.amount);
         if (

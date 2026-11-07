@@ -15,6 +15,7 @@ export function accessibleAccount(userId: string): Prisma.AccountWhereInput {
     OR: [
       { accountType: { userId } },
       {
+        isCreditCard: false,
         groupAccounts: {
           some: { group: { ...activeGroup, members: { some: activeMember(userId) } } },
         },

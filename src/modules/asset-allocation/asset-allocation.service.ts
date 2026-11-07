@@ -47,8 +47,13 @@ export function consolidateAllocation(source: NetWorthSource, observed: Date): A
     }
     classes.set(kind, group);
   }
+  const cardIds = new Set(
+    source.accounts.filter((account) => account.isCreditCard).map((account) => account.id),
+  );
   for (const account of net.accounts) {
-    if (new Decimal(account.balance).gt(0)) add('CASH', account.balance);
+    // A positive card credit remains an asset, but is not liquid cash.
+    if (new Decimal(account.balance).gt(0))
+      add(cardIds.has(account.account_id) ? 'UNCLASSIFIED' : 'CASH', account.balance);
   }
   add('RECEIVABLE', net.receivables_value ?? null);
   for (const holding of net.holdings) {
@@ -132,7 +137,7 @@ export class AssetAllocationService {
   constructor(
     private readonly repository: NetWorthRepository,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+  ) { }
   async snapshot(userId: string): Promise<AllocationDto> {
     const at = this.now();
     return consolidateAllocation(

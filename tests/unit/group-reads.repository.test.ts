@@ -14,14 +14,14 @@ function fixture(member = true) {
   const membership = vi.spyOn(prisma.userGroup, 'findFirst').mockResolvedValue(
     member
       ? {
-          id: rowId,
-          userId: actor,
-          groupId: group,
-          role: 'MEMBER',
-          createdBy: actor,
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        }
+        id: rowId,
+        userId: actor,
+        groupId: group,
+        role: 'MEMBER',
+        createdBy: actor,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      }
       : null,
   );
   const accounts = vi.spyOn(prisma.groupAccount, 'findMany').mockResolvedValue([]);
@@ -49,7 +49,7 @@ describe('group management reads', () => {
     const result = await f.repository.accounts(actor, group, { page: 3, limit: 2 });
     const where: Prisma.GroupAccountWhereInput = {
       groupId: group,
-      account: { userId: actor, deletedAt: null, accountType: { userId: actor, deletedAt: null } },
+      account: { userId: actor, deletedAt: null, isCreditCard: false, accountType: { userId: actor, deletedAt: null } },
     };
     expect(f.accounts).toHaveBeenCalledExactlyOnceWith({
       where,

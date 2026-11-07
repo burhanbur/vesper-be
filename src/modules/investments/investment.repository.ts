@@ -73,17 +73,17 @@ async function requireInvestmentAccount(tx: Prisma.TransactionClient, userId: st
   return account;
 }
 export class PrismaInvestmentRepository implements InvestmentRepository {
-  constructor(private readonly client: PrismaClient) {}
+  constructor(private readonly client: PrismaClient) { }
   async listInstruments(query: ListInstrumentsQuery) {
     const where: Prisma.InstrumentWhereInput = {
       deletedAt: null,
       ...(query.search
         ? {
-            OR: [
-              { code: { contains: query.search, mode: 'insensitive' } },
-              { name: { contains: query.search, mode: 'insensitive' } },
-            ],
-          }
+          OR: [
+            { code: { contains: query.search, mode: 'insensitive' } },
+            { name: { contains: query.search, mode: 'insensitive' } },
+          ],
+        }
         : {}),
     };
     const direction = query.sort.startsWith('-') ? 'desc' : 'asc';
@@ -207,6 +207,7 @@ export class PrismaInvestmentRepository implements InvestmentRepository {
             where: {
               id: input.cash_account_id,
               ...accessibleAccount(userId),
+              isCreditCard: false,
               currency: instrument.currency,
               accountType: {
                 deletedAt: null,
@@ -402,9 +403,9 @@ export class PrismaInvestmentRepository implements InvestmentRepository {
           const price = stored
             ? null
             : await tx.instrumentPrice.findFirst({
-                where: { instrumentId: instrument.id, priceDate: { lte: snapshotDate } },
-                orderBy: { priceDate: 'desc' },
-              });
+              where: { instrumentId: instrument.id, priceDate: { lte: snapshotDate } },
+              orderBy: { priceDate: 'desc' },
+            });
           const values = stored ?? (price ? valuation(position, price.closePrice) : null);
           items.push({
             account_id: accountId,

@@ -1,4 +1,5 @@
 import { generateId } from '../../common/utils/id.js';
+import { assertCardExpense, assertCardTransfer } from '../accounts/credit-card-policy.js';
 import { AppError } from '../../common/errors/app-error.js';
 import { accessibleAccount } from '../../common/authorization/account-access.js';
 import { Prisma, type PrismaClient, type Account } from '../../generated/prisma/client.js';
@@ -46,7 +47,7 @@ function invalid(code: string, message: string): never {
 const ownedAccount = accessibleAccount;
 
 export class PrismaTransactionRepository implements TransactionRepository {
-  constructor(private readonly client: PrismaClient) {}
+  constructor(private readonly client: PrismaClient) { }
 
   async list(userId: string, query: ListTransactionsQuery) {
     const dates = query.date_range?.split(',');
@@ -122,6 +123,7 @@ export class PrismaTransactionRepository implements TransactionRepository {
     });
     if (!account)
       invalid('TRANSACTION_ACCOUNT_INVALID', 'Akun aktif yang dapat diakses tidak ditemukan.');
+    assertCardExpense(account, input.type);
     const category = await tx.category.findFirst({
       where: {
         id: input.category_id,
@@ -296,7 +298,7 @@ export class PrismaTransactionRepository implements TransactionRepository {
           id: { in: [...new Set(accounts.map((account) => account.accountTypeId))] },
           deletedAt: null,
         },
-        select: { id: true, userId: true },
+        select: { id: true, userId: true, category: true },
       });
       const ownerMap = new Map(
         accountTypes.map((accountType) => [accountType.id, accountType.userId]),
@@ -319,6 +321,7 @@ export class PrismaTransactionRepository implements TransactionRepository {
               'Akun aktif yang dapat diakses tidak ditemukan.',
             );
           }
+          assertCardExpense(account, item.type);
           const ownerId = ownerMap.get(account.accountTypeId);
           if (!ownerId) {
             invalid(
@@ -345,6 +348,12 @@ export class PrismaTransactionRepository implements TransactionRepository {
               'Akun asal dan tujuan harus memiliki mata uang yang sama.',
             );
           }
+          assertCardTransfer(
+            userId,
+            from,
+            to,
+            accountTypes.find((type) => type.id === from.accountTypeId)?.category,
+          );
         }
       }
 

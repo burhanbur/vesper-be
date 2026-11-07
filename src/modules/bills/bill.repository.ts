@@ -93,7 +93,7 @@ export function toBillOccurrenceDto(o: OccurrenceRecord) {
 const occurrenceInclude = { bill: true, transaction: true, obligationEvent: true } as const;
 
 export class BillRepository {
-  constructor(private readonly tx: Prisma.TransactionClient) {}
+  constructor(private readonly tx: Prisma.TransactionClient) { }
   async schedule(
     userId: string,
     id: string,
@@ -114,12 +114,12 @@ export class BillRepository {
           operation === 'DELETE'
             ? { ...data, version: { increment: 1 } }
             : {
-                title: UpdateBillSchema.parse(payload).title,
-                active: UpdateBillSchema.parse(payload).active,
-                reminderEnabled: UpdateBillSchema.parse(payload).reminder_enabled,
-                reminderDays: UpdateBillSchema.parse(payload).reminder_days,
-                version: { increment: 1 },
-              },
+              title: UpdateBillSchema.parse(payload).title,
+              active: UpdateBillSchema.parse(payload).active,
+              reminderEnabled: UpdateBillSchema.parse(payload).reminder_enabled,
+              reminderDays: UpdateBillSchema.parse(payload).reminder_days,
+              version: { increment: 1 },
+            },
       });
     }
     const input = CreateBillSchema.parse(payload);
@@ -132,6 +132,7 @@ export class BillRepository {
           userId,
           currency: 'IDR',
           deletedAt: null,
+          isCreditCard: false,
           accountType: { userId, category: 'CASH', deletedAt: null },
           children: { none: { deletedAt: null } },
           mappedObligations: { none: { deletedAt: null } },
@@ -309,7 +310,7 @@ export class BillRepository {
             categoryId: bill.categoryId,
             type: bill.transactionType === 'INCOME' ? 'INCOME' : 'EXPENSE',
             deletedAt: null,
-            account: { userId, deletedAt: null },
+            account: { userId, deletedAt: null, isCreditCard: false },
             obligationEventId: null,
             transferId: null,
           },
@@ -372,6 +373,7 @@ export class BillRepository {
             userId,
             currency: 'IDR',
             deletedAt: null,
+            isCreditCard: false,
             accountType: { category: 'CASH', deletedAt: null },
             children: { none: { deletedAt: null } },
           },
@@ -410,20 +412,20 @@ export class BillRepository {
     const data = { status, amount, transactionId, obligationEventId, note: input.note };
     const occurrence = existing
       ? await tx.billOccurrence.update({
-          where: { id: occurrenceId },
-          data: { ...data, version: { increment: 1 } },
-          include: occurrenceInclude,
-        })
+        where: { id: occurrenceId },
+        data: { ...data, version: { increment: 1 } },
+        include: occurrenceInclude,
+      })
       : await tx.billOccurrence.create({
-          data: {
-            id: occurrenceId,
-            userId,
-            billId: bill.id,
-            dueDate: new Date(input.due_date),
-            ...data,
-          },
-          include: occurrenceInclude,
-        });
+        data: {
+          id: occurrenceId,
+          userId,
+          billId: bill.id,
+          dueDate: new Date(input.due_date),
+          ...data,
+        },
+        include: occurrenceInclude,
+      });
     await tx.billCommand.update({ where: { id }, data: { outcome: 'APPLIED', occurrenceId } });
     await this.snapshots(userId, bill, occurrenceId, input.ledger_id);
     return { status: 'applied' as const, server_data: toBillOccurrenceDto(occurrence) };

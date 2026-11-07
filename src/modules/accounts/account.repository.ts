@@ -44,6 +44,7 @@ function assertVersion(record: AccountRecord, version: bigint): void {
 }
 function editableData(input: UpdateAccountInput): Prisma.AccountUpdateInput {
   return {
+    ...(input.credit_limit === undefined ? {} : { creditLimit: input.credit_limit }),
     ...(input.name === undefined ? {} : { name: input.name }),
     ...(input.icon === undefined ? {} : { icon: input.icon }),
     ...(input.description === undefined ? {} : { description: input.description }),
@@ -55,7 +56,7 @@ function editableData(input: UpdateAccountInput): Prisma.AccountUpdateInput {
 }
 
 export class PrismaAccountRepository implements AccountRepository {
-  constructor(private readonly client: PrismaClient) {}
+  constructor(private readonly client: PrismaClient) { }
 
   async list(userId: string, query: ListAccountsQuery) {
     const where: Prisma.AccountWhereInput = {
@@ -135,7 +136,7 @@ export class PrismaAccountRepository implements AccountRepository {
           mappedObligations: { none: { deletedAt: null } },
         },
       });
-      if (parent?.accountTypeId !== typeId) {
+      if (parent?.accountTypeId !== typeId || parent.isCreditCard) {
         throw new AppError({
           statusCode: 422,
           code: 'ACCOUNT_PARENT_INVALID',
@@ -162,9 +163,40 @@ export class PrismaAccountRepository implements AccountRepository {
     });
   }
 
+  private async validateCard(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    typeId: string,
+    isCard: boolean,
+    limit: string | null,
+    parentId: string | null,
+  ): Promise<void> {
+    if (!isCard) {
+      if (limit !== null)
+        reject('ACCOUNT_CREDIT_LIMIT_INVALID', 'Limit kredit hanya untuk kartu kredit.');
+      return;
+    }
+    const type = await tx.accountType.findFirst({
+      where: { id: typeId, userId, category: 'CASH', deletedAt: null },
+    });
+    if (!type || parentId !== null)
+      reject(
+        'ACCOUNT_CREDIT_CARD_INVALID',
+        'Kartu kredit harus akun kas IDR pribadi tanpa parent.',
+      );
+  }
+
   create(userId: string, id: string, input: CreateAccountInput): Promise<AccountRecord> {
     return this.write(userId, async (tx) => {
       await this.lockType(tx, userId, input.account_type_id);
+      await this.validateCard(
+        tx,
+        userId,
+        input.account_type_id,
+        input.is_credit_card,
+        input.credit_limit,
+        input.parent_account_id,
+      );
       await this.validateParent(tx, userId, id, input.account_type_id, input.parent_account_id);
       const record = await tx.account.create({
         data: {
@@ -180,6 +212,8 @@ export class PrismaAccountRepository implements AccountRepository {
           isIncludeTotal: input.is_include_total,
           sequenceOrder: BigInt(input.sequence_order),
           balance: '0',
+          isCreditCard: input.is_credit_card,
+          creditLimit: input.credit_limit,
           version: 1n,
         },
       });
@@ -195,6 +229,8 @@ export class PrismaAccountRepository implements AccountRepository {
       });
       if (!current) missing();
       assertVersion(current, BigInt(input.version));
+      if (input.is_credit_card !== undefined && input.is_credit_card !== current.isCreditCard)
+        reject('ACCOUNT_CLASSIFICATION_LOCKED', 'Jenis kartu kredit tidak dapat diubah.', current);
       const typeId = input.account_type_id ?? current.accountTypeId;
       const parentId =
         input.parent_account_id === undefined ? current.parentAccountId : input.parent_account_id;
@@ -218,6 +254,25 @@ export class PrismaAccountRepository implements AccountRepository {
       }
       const hasChildren =
         (await tx.account.count({ where: { parentAccountId: id, deletedAt: null } })) > 0;
+      await this.validateCard(
+        tx,
+        userId,
+        typeId,
+        current.isCreditCard,
+        input.credit_limit === undefined
+          ? (current.creditLimit?.toFixed(2) ?? null)
+          : input.credit_limit,
+        parentId,
+      );
+      if (
+        current.isCreditCard &&
+        (hasChildren || (await tx.groupAccount.count({ where: { accountId: id } })))
+      )
+        reject(
+          'ACCOUNT_CREDIT_CARD_INVALID',
+          'Kartu kredit harus akun pribadi tanpa anak.',
+          current,
+        );
       if (hasChildren && typeId !== current.accountTypeId) {
         reject(
           'ACCOUNT_TYPE_HAS_CHILDREN',
@@ -251,7 +306,9 @@ export class PrismaAccountRepository implements AccountRepository {
 
   softDelete(userId: string, id: string, version: bigint): Promise<void> {
     return this.write(userId, async (tx) => {
-      const current = await tx.account.findFirst({ where: { id, userId, deletedAt: null } });
+      const current = await tx.account.findFirst({
+        where: { id, userId, deletedAt: null, mappedObligations: { none: { deletedAt: null } } },
+      });
       if (!current) missing();
       assertVersion(current, version);
       if ((await tx.account.count({ where: { parentAccountId: id, deletedAt: null } })) > 0) {

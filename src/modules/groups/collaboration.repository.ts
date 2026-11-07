@@ -28,7 +28,7 @@ export class CollaborationRepository {
         // One eligibility predicate for totals and feed. No private labels, notes or account IDs.
         const eligible = Prisma.sql`
         FROM transactions t
-        JOIN accounts a ON a.id = t.account_id AND a.deleted_at IS NULL
+        JOIN accounts a ON a.id = t.account_id AND a.deleted_at IS NULL AND NOT a.is_credit_card
         JOIN account_types at ON at.id = a.account_type_id AND at.user_id = a.user_id AND at.deleted_at IS NULL
         JOIN users u ON u.id = a.user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL
         JOIN user_groups ug ON ug.user_id = u.id AND ug.group_id = ${groupId}::uuid
@@ -45,7 +45,7 @@ export class CollaborationRepository {
         JOIN group_accounts ga ON ga.account_id = a.id AND ga.group_id = ${groupId}::uuid
         JOIN user_groups ug ON ug.group_id = ga.group_id AND ug.user_id = a.user_id
         JOIN users u ON u.id = ug.user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL
-        WHERE a.deleted_at IS NULL GROUP BY a.currency ORDER BY a.currency`);
+        WHERE a.deleted_at IS NULL AND NOT a.is_credit_card GROUP BY a.currency ORDER BY a.currency`);
         const contributions = await tx.$queryRaw<
           { user_id: string; currency: string; income: string; expense: string }[]
         >(Prisma.sql`

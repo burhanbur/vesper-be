@@ -16,6 +16,7 @@ function setup(roles: (string | null)[]) {
       update: vi.fn<(args: Prisma.UserGroupUpdateArgs) => Promise<unknown>>(),
       delete: vi.fn(),
     },
+    groupPocketAccount: { deleteMany: vi.fn() },
     groupAccount: { deleteMany: vi.fn() },
     mappingGroupCategory: { deleteMany: vi.fn() },
     $queryRaw: vi.fn().mockResolvedValue([]),
@@ -42,16 +43,27 @@ describe('collaboration privacy and membership', () => {
     await expect(repository.manage('actor', 'group', target, 'REMOVE')).rejects.toMatchObject({
       statusCode: 403,
     });
+    expect(tx.groupPocketAccount.deleteMany).not.toHaveBeenCalled();
+    expect(tx.groupAccount.deleteMany).not.toHaveBeenCalled();
+    expect(tx.mappingGroupCategory.deleteMany).not.toHaveBeenCalled();
     expect(tx.userGroup.delete).not.toHaveBeenCalled();
   });
-  it('allows self leave and removes opt-ins only', async () => {
-    const { repository, tx } = setup(['MEMBER', 'MEMBER']);
-    await repository.manage('actor', 'group', 'actor', 'REMOVE');
-    expect(tx.groupAccount.deleteMany).toHaveBeenCalledWith({
-      where: { groupId: 'group', account: { userId: 'actor' } },
+  it.each([
+    ['MEMBER', 'actor'],
+    ['OWNER', 'other'],
+  ])('allows %s removal and removes only target opt-ins', async (role, target) => {
+    const { repository, tx } = setup([role, 'MEMBER']);
+    await repository.manage('actor', 'group', target, 'REMOVE');
+    expect(tx.groupPocketAccount.deleteMany).toHaveBeenCalledExactlyOnceWith({
+      where: { groupId: 'group', account: { userId: target } },
     });
-    expect(tx.mappingGroupCategory.deleteMany).toHaveBeenCalledOnce();
-    expect(tx.userGroup.delete).toHaveBeenCalledOnce();
+    expect(tx.groupAccount.deleteMany).toHaveBeenCalledExactlyOnceWith({
+      where: { groupId: 'group', account: { userId: target } },
+    });
+    expect(tx.mappingGroupCategory.deleteMany).toHaveBeenCalledExactlyOnceWith({
+      where: { groupId: 'group', userCategory: { userId: target } },
+    });
+    expect(tx.userGroup.delete).toHaveBeenCalledExactlyOnceWith({ where: { id: 'MEMBER' } });
   });
   it('transfers ownership atomically without deleting opt-ins', async () => {
     const { repository, tx } = setup(['OWNER', 'MEMBER']);
@@ -60,7 +72,10 @@ describe('collaboration privacy and membership', () => {
       { where: { id: 'MEMBER' }, data: { role: 'OWNER' } },
       { where: { id: 'OWNER' }, data: { role: 'MEMBER' } },
     ]);
+    expect(tx.groupPocketAccount.deleteMany).not.toHaveBeenCalled();
     expect(tx.groupAccount.deleteMany).not.toHaveBeenCalled();
+    expect(tx.mappingGroupCategory.deleteMany).not.toHaveBeenCalled();
+    expect(tx.userGroup.delete).not.toHaveBeenCalled();
   });
   it('bounds pages and rejects privilege injection', () => {
     expect(CollaborationQuerySchema.safeParse({ period: '2026-13' }).success).toBe(false);

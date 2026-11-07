@@ -75,6 +75,8 @@ export class FakeAccountRepository implements AccountRepository {
       isIncludeTotal: input.is_include_total ?? true,
       sequenceOrder: BigInt(input.sequence_order ?? '0'),
       balance: new Prisma.Decimal('0.00'),
+      isCreditCard: input.is_credit_card,
+      creditLimit: input.credit_limit === null ? null : new Prisma.Decimal(input.credit_limit),
       version: 1n,
       createdAt: now,
       updatedAt: now,

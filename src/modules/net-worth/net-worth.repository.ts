@@ -20,7 +20,7 @@ export function netWorthLimit(): never {
   });
 }
 export class PrismaNetWorthRepository {
-  constructor(private readonly client: PrismaClient) {}
+  constructor(private readonly client: PrismaClient) { }
   async findCapture(userId: string, currency: string, date: string): Promise<NetWorthDto | null> {
     const row = await this.client.netWorthObservation.findFirst({
       where: {
@@ -57,6 +57,7 @@ export class PrismaNetWorthRepository {
           select: {
             id: true,
             balance: true,
+            isCreditCard: true,
             isIncludeTotal: true,
             accountType: { select: { category: true } },
             children: { where: { deletedAt: null }, select: { id: true }, take: 1 },

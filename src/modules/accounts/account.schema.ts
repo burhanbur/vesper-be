@@ -16,7 +16,15 @@ export const AccountSequenceSchema = z
     (value) => /^(0|[1-9]\d{0,18})$/.test(value) && BigInt(value) <= MAX_BIGINT,
     'Urutan di luar batas bigint.',
   );
+export const CreditLimitSchema = z
+  .string()
+  .regex(/^(0|[1-9]\d{0,17})(\.\d{1,2})?$/)
+  .refine((value) => /[1-9]/.test(value), 'Limit kredit harus positif.')
+  .nullable()
+  .describe('Optional advisory decimal(20,2) limit, transported exactly; null means untracked.');
 const editable = {
+  is_credit_card: z.boolean(),
+  credit_limit: CreditLimitSchema,
   account_type_id: z.uuid(),
   parent_account_id: z.uuid().nullable(),
   icon: z.string().trim().min(1).max(120).nullable(),
@@ -29,6 +37,8 @@ const editable = {
 };
 export const CreateAccountSchema = z.strictObject({
   ...editable,
+  is_credit_card: editable.is_credit_card.default(false),
+  credit_limit: editable.credit_limit.default(null),
   parent_account_id: editable.parent_account_id.default(null),
   icon: editable.icon.default(null),
   currency: editable.currency.default('IDR'),

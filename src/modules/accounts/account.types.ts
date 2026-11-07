@@ -12,6 +12,8 @@ export function toAccountDto(record: AccountRecord): AccountDto {
     name: record.name,
     currency: 'IDR',
     balance: record.balance.toFixed(2),
+    is_credit_card: record.isCreditCard,
+    credit_limit: record.creditLimit?.toFixed(2) ?? null,
     description: record.description,
     is_visible: record.isVisible,
     is_include_total: record.isIncludeTotal,

@@ -49,7 +49,7 @@ export class PrismaPocketRepository implements PocketRepository {
         JOIN user_groups ug ON ug.user_id = a.user_id AND ug.group_id = pa.group_id
         JOIN group_accounts ga ON ga.account_id = a.id AND ga.group_id = pa.group_id
         LEFT JOIN accounts p ON p.id = a.parent_account_id
-        WHERE pa.group_id = ${groupId}::uuid
+        WHERE pa.group_id = ${groupId}::uuid AND NOT a.is_credit_card
           AND (a.parent_account_id IS NULL OR (p.deleted_at IS NULL AND p.user_id = a.user_id
             AND EXISTS (SELECT 1 FROM account_types pt WHERE pt.id = p.account_type_id AND pt.user_id = a.user_id AND pt.deleted_at IS NULL)))
           AND NOT EXISTS (SELECT 1 FROM accounts child WHERE child.parent_account_id = a.id AND child.deleted_at IS NULL)
@@ -102,7 +102,7 @@ export class PrismaPocketRepository implements PocketRepository {
         JOIN user_groups ug ON ug.user_id = a.user_id AND ug.group_id = pa.group_id
         JOIN group_accounts ga ON ga.account_id = a.id AND ga.group_id = pa.group_id
         LEFT JOIN accounts p ON p.id = a.parent_account_id
-        WHERE pa.group_id = ${groupId}::uuid AND pa.pocket_id = ${pocketId}::uuid
+        WHERE pa.group_id = ${groupId}::uuid AND pa.pocket_id = ${pocketId}::uuid AND NOT a.is_credit_card
           AND (a.parent_account_id IS NULL OR (p.deleted_at IS NULL AND p.user_id = a.user_id
             AND EXISTS (SELECT 1 FROM account_types pt WHERE pt.id = p.account_type_id AND pt.user_id = a.user_id AND pt.deleted_at IS NULL)))
           AND NOT EXISTS (SELECT 1 FROM accounts child WHERE child.parent_account_id = a.id AND child.deleted_at IS NULL)
@@ -145,7 +145,7 @@ export class PrismaPocketRepository implements PocketRepository {
             }
             const eligible = await tx.account.findFirst({
                 where: {
-                    id: accountId, userId: actor, deletedAt: null,
+                    id: accountId, userId: actor, deletedAt: null, isCreditCard: false,
                     accountType: { userId: actor, deletedAt: null },
                     children: { none: { deletedAt: null } },
                     OR: [{ parentAccountId: null }, { parent: { userId: actor, deletedAt: null, accountType: { userId: actor, deletedAt: null } } }],

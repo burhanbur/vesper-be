@@ -93,6 +93,7 @@ export async function allocationDtos(
         account.deletedAt ||
           account.accountType.deletedAt ||
           account.accountType.category !== 'CASH' ||
+          account.isCreditCard ||
           account.children.length ||
           account.mappedObligations.length
           ? new Prisma.Decimal(0)
@@ -120,7 +121,7 @@ export async function allocationDtos(
 }
 
 export class GoalRepository {
-  constructor(private readonly tx: Prisma.TransactionClient) {}
+  constructor(private readonly tx: Prisma.TransactionClient) { }
   async write(
     userId: string,
     entity: 'goals' | 'goal_allocations',
@@ -227,6 +228,7 @@ export class GoalRepository {
           id: accountId,
           userId,
           deletedAt: null,
+          isCreditCard: false,
           accountType: { category: 'CASH', deletedAt: null },
           children: { none: { deletedAt: null } },
           mappedObligations: { none: { deletedAt: null } },

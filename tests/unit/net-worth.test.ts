@@ -24,6 +24,7 @@ function account(
     id,
     balance: decimal(balance),
     accountType: { category },
+    isCreditCard: false,
     isIncludeTotal: included,
     children,
   };

@@ -86,8 +86,10 @@ export function consolidateNetWorth(
     });
     if (balance.isNegative()) liabilities = liabilities.plus(balance.abs());
     else assets = assets.plus(balance);
-    if (account.accountType.category === 'CASH') cash = cash.plus(balance);
-    else investmentCash = investmentCash.plus(balance);
+    if (!account.isCreditCard) {
+      if (account.accountType.category === 'CASH') cash = cash.plus(balance);
+      else investmentCash = investmentCash.plus(balance);
+    }
   }
   const quantities = new Map<
     string,
@@ -126,8 +128,8 @@ export function consolidateNetWorth(
       reason || !price
         ? null
         : new Decimal(position.quantity.toString())
-            .mul(price.closePrice.toString())
-            .toDecimalPlaces(2);
+          .mul(price.closePrice.toString())
+          .toDecimalPlaces(2);
     if (value) holdings = holdings.plus(value);
     else incomplete = true;
     result.holdings.push({
@@ -166,7 +168,7 @@ export class NetWorthService {
   constructor(
     private readonly repository: NetWorthRepository,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+  ) { }
   async snapshot(userId: string, query: NetWorthQuery): Promise<NetWorthDto> {
     const input = NetWorthQuerySchema.parse(query);
     const observed = this.now();

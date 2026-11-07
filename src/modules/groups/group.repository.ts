@@ -234,7 +234,7 @@ export class PrismaGroupRepository implements GroupRepository {
         await requireMember(tx, userId, id);
         const where: Prisma.GroupAccountWhereInput = {
           groupId: id,
-          account: { userId, deletedAt: null, accountType: { userId, deletedAt: null } },
+          account: { userId, deletedAt: null, isCreditCard: false, accountType: { userId, deletedAt: null } },
         };
         const [rows, total] = await Promise.all([
           tx.groupAccount.findMany({
@@ -314,7 +314,7 @@ export class PrismaGroupRepository implements GroupRepository {
             accountType: { userId, deletedAt: null },
           },
         });
-        if (!account) deny();
+        if (!account || (!remove && account.isCreditCard)) deny();
         if (remove) await tx.groupAccount.deleteMany({ where: { groupId: id, accountId } });
         else
           await tx.groupAccount.upsert({
@@ -460,7 +460,7 @@ export class PrismaGroupRepository implements GroupRepository {
                         JOIN group_accounts ga ON ga.account_id = a.id AND ga.group_id = gc.group_id
                         JOIN user_groups ug ON ug.group_id = gc.group_id AND ug.user_id = at.user_id
                         JOIN users u ON u.id = ug.user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL
-                        WHERE a.id = t.account_id AND a.deleted_at IS NULL AND at.user_id = c.user_id AND a.user_id = at.user_id
+                        WHERE a.id = t.account_id AND a.deleted_at IS NULL AND NOT a.is_credit_card AND at.user_id = c.user_id AND a.user_id = at.user_id
                     )
                 WHERE gc.group_id = ${id}::uuid
                 GROUP BY gc.id, gc.name, gc.type ORDER BY gc.name, gc.id`;

@@ -24,7 +24,7 @@ export function toEmergencyPlanDto(row: EmergencyPlan) {
   };
 }
 export class EmergencyPlanRepository {
-  constructor(private readonly tx: Prisma.TransactionClient) {}
+  constructor(private readonly tx: Prisma.TransactionClient) { }
   async write(
     userId: string,
     id: string,
@@ -57,6 +57,7 @@ export class EmergencyPlanRepository {
         userId,
         currency: 'IDR',
         deletedAt: null,
+        isCreditCard: false,
         accountType: { userId, category: 'CASH', deletedAt: null },
         children: { none: { deletedAt: null } },
         mappedObligations: { none: { deletedAt: null } },

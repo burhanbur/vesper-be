@@ -23,6 +23,8 @@ const example = {
   icon: null,
   currency: 'IDR',
   balance: '0.00',
+  is_credit_card: false,
+  credit_limit: null,
   description: null,
   is_visible: true,
   is_include_total: true,
@@ -87,15 +89,15 @@ export function registerAccountOpenApi(registry: OpenAPIRegistry): void {
           data: list ? [example] : example,
           ...(list
             ? {
-                pagination: {
-                  total: 1,
-                  per_page: 20,
-                  current_page: 1,
-                  last_page: 1,
-                  from: 1,
-                  to: 1,
-                },
-              }
+              pagination: {
+                total: 1,
+                per_page: 20,
+                current_page: 1,
+                last_page: 1,
+                from: 1,
+                to: 1,
+              },
+            }
             : {}),
         },
       },
@@ -104,7 +106,7 @@ export function registerAccountOpenApi(registry: OpenAPIRegistry): void {
   const tags = ['Accounts'];
   const security = [{ bearerAuth: [] }];
   const scope =
-    'Active authenticated users, no RBAC. Lists allow owned OR explicitly shared accounts in an active joined group (distinct rows). Metadata create/PATCH/DELETE remains owner-only. No sync publication or balance history. ';
+    'Active authenticated users, no RBAC. Lists allow owned OR explicitly shared non-card accounts in an active joined group (distinct rows). Metadata create/PATCH/DELETE remains owner-only. Credit cards are explicit private IDR CASH leaves, created at zero balance, never identified by name. is_credit_card defaults false and is immutable; credit_limit is an optional positive exact decimal string or null (untracked). Omitted PATCH fields preserve metadata. Limits are advisory: over-limit expenses, lower-limit edits and incoming same-owner CASH overpayments are allowed. Mapped obligation accounts remain locked. No separate card resource or ledger. ';
   registry.registerPath({
     method: 'get',
     path: '/api/v1/accounts',

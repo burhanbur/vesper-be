@@ -71,7 +71,7 @@ describe('batch transaction category authorization (database-free)', () => {
     await expect(repository.createBatch(actor, [item])).resolves.toEqual({ count: 1 });
     expect(tx.accountType.findMany).toHaveBeenCalledWith({
       where: { id: { in: ['account-type'] }, deletedAt: null },
-      select: { id: true, userId: true },
+      select: { id: true, userId: true, category: true },
     });
     expect(tx.transaction.createMany).toHaveBeenCalledWith({
       data: [

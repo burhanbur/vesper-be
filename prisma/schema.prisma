@@ -321,6 +321,8 @@ model Account {
   name                       String                   @db.VarChar(120)
   currency                   String                   @default("IDR") @db.VarChar(3)
   balance                    Decimal                  @default(0) @db.Decimal(20, 2)
+  isCreditCard               Boolean                  @default(false) @map("is_credit_card")
+  creditLimit                Decimal?                 @map("credit_limit") @db.Decimal(20, 2)
   description                String?                  @db.Text
   isVisible                  Boolean                  @default(true) @map("is_visible")
   isIncludeTotal             Boolean                  @default(true) @map("is_include_total")
