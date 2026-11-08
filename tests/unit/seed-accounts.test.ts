@@ -33,14 +33,11 @@ function visit(node: ts.Node): void {
 visit(source);
 
 describe('seed account definitions', () => {
-  it('defines a single debt and receivable account', () => {
+  it('does not create a confusing combined debt and receivable account', () => {
     const debtAccounts = accounts.filter(
       (account) => account.accountTypeName === 'Hutang & Piutang',
     );
-    expect(debtAccounts).toHaveLength(1);
-    expect(debtAccounts[0]?.id?.endsWith('000050')).toBe(true);
-    expect(debtAccounts[0]?.name).toBe('Hutang');
-    expect(debtAccounts[0]?.isIncludeTotal).toBe('true');
+    expect(debtAccounts).toHaveLength(0);
   });
 
   it('nests ordered mutual funds under Bareksa without double-counting the parent', () => {

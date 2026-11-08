@@ -15,7 +15,27 @@ function fail(message: string, statusCode = 422): never {
   throw new AppError({ code: 'OBLIGATION_COMMAND_INVALID', message, statusCode });
 }
 export class ObligationRepository {
-  constructor(private readonly client: PrismaClient) { }
+  constructor(private readonly client: PrismaClient) {}
+
+  async list(userId: string) {
+    const rows = await this.client.obligation.findMany({
+      where: { userId, deletedAt: null },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    return rows.map(toObligationDto);
+  }
+
+  async events(userId: string, obligationId: string) {
+    const record = await this.client.obligation.findFirst({
+      where: { id: obligationId, userId, deletedAt: null },
+    });
+    if (!record) fail('Catatan utang/piutang tidak ditemukan.', 404);
+    const rows = await this.client.obligationEvent.findMany({
+      where: { userId, obligationId },
+      orderBy: [{ transactedAt: 'desc' }, { id: 'desc' }],
+    });
+    return rows.map(toObligationEventDto);
+  }
 
   cancel(userId: string, id: string, raw: ObligationCommand) {
     const command = ObligationCommandSchema.parse(raw);
@@ -45,8 +65,8 @@ export class ObligationRepository {
       const target =
         command.action === 'REVERSE'
           ? await tx.obligationEvent.findFirst({
-            where: { id: command.target_event_id, userId, obligationId: command.obligation_id },
-          })
+              where: { id: command.target_event_id, userId, obligationId: command.obligation_id },
+            })
           : null;
       if (!previous) {
         const ids = [id, ...Object.values(command.ledger_ids)];
@@ -135,10 +155,10 @@ export class ObligationRepository {
           event: toObligationEventDto(previous),
           obligation: previous.obligationId
             ? toObligationDto(
-              await tx.obligation.findFirstOrThrow({
-                where: { id: previous.obligationId, userId },
-              }),
-            )
+                await tx.obligation.findFirstOrThrow({
+                  where: { id: previous.obligationId, userId },
+                }),
+              )
             : null,
         };
       }
@@ -179,14 +199,14 @@ export class ObligationRepository {
       const target =
         command.action === 'REVERSE'
           ? await tx.obligationEvent.findFirst({
-            where: {
-              id: command.target_event_id,
-              userId,
-              obligationId: command.obligation_id,
-              operation: 'REPAY',
-              reversedAt: null,
-            },
-          })
+              where: {
+                id: command.target_event_id,
+                userId,
+                obligationId: command.obligation_id,
+                operation: 'REPAY',
+                reversedAt: null,
+              },
+            })
           : null;
       if (command.action === 'REVERSE' && !target)
         fail('Pembayaran tidak tersedia untuk dikoreksi.', 409);

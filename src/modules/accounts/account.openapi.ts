@@ -89,15 +89,15 @@ export function registerAccountOpenApi(registry: OpenAPIRegistry): void {
           data: list ? [example] : example,
           ...(list
             ? {
-              pagination: {
-                total: 1,
-                per_page: 20,
-                current_page: 1,
-                last_page: 1,
-                from: 1,
-                to: 1,
-              },
-            }
+                pagination: {
+                  total: 1,
+                  per_page: 20,
+                  current_page: 1,
+                  last_page: 1,
+                  from: 1,
+                  to: 1,
+                },
+              }
             : {}),
         },
       },
@@ -106,7 +106,7 @@ export function registerAccountOpenApi(registry: OpenAPIRegistry): void {
   const tags = ['Accounts'];
   const security = [{ bearerAuth: [] }];
   const scope =
-    'Active authenticated users, no RBAC. Lists allow owned OR explicitly shared non-card accounts in an active joined group (distinct rows). Metadata create/PATCH/DELETE remains owner-only. Credit cards are explicit private IDR CASH leaves, created at zero balance, never identified by name. is_credit_card defaults false and is immutable; credit_limit is an optional positive exact decimal string or null (untracked). Omitted PATCH fields preserve metadata. Limits are advisory: over-limit expenses, lower-limit edits and incoming same-owner CASH overpayments are allowed. Mapped obligation accounts remain locked. No separate card resource or ledger. ';
+    'Active authenticated users, no RBAC. Lists allow owned OR explicitly shared non-card accounts in an active joined group (distinct rows). Metadata create/PATCH/DELETE remains owner-only. Credit cards are explicit private IDR CASH leaves, created at zero balance, never identified by name. is_credit_card defaults false; classification can be corrected only on a zero-balance private root with no children, sharing, transaction history (including deleted rows), investment history or snapshots. Card-to-cash correction must clear credit_limit; credit_limit is an optional positive exact decimal string or null (untracked). Omitted PATCH fields preserve metadata. Limits are advisory: over-limit expenses, lower-limit edits and incoming same-owner CASH overpayments are allowed. Mapped obligation accounts remain locked. No separate card resource or ledger. ';
   registry.registerPath({
     method: 'get',
     path: '/api/v1/accounts',

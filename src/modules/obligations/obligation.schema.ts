@@ -108,3 +108,14 @@ export const ObligationEventDtoSchema = z.object({
   updated_at: z.iso.datetime(),
   deleted_at: z.iso.datetime().nullable(),
 });
+
+// HTTP uses the same immutable command as offline sync. Retrying this ID is safe.
+export const ObligationHttpCommandSchema = z.strictObject({
+  id: z.uuid(),
+  command: ObligationCommandSchema,
+});
+export const ObligationIdParamsSchema = z.strictObject({ id: z.uuid() });
+export const ObligationCommandResultSchema = z.object({
+  event: ObligationEventDtoSchema,
+  obligation: ObligationDtoSchema.nullable(),
+});

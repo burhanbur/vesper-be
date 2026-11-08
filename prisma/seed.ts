@@ -681,7 +681,6 @@ const seedRefAccountTypes = [
   { id: '0199a1b9-0000-7000-8000-000000000001', name: 'Cash' },
   { id: '0199a1b9-0000-7000-8000-000000000002', name: 'Rekening Bank' },
   { id: '0199a1b9-0000-7000-8000-000000000003', name: 'E-wallet' },
-  { id: '0199a1b9-0000-7000-8000-000000000004', name: 'Hutang & Piutang' },
   { id: '0199a1b9-0000-7000-8000-000000000005', name: 'Reksadana' },
   { id: '0199a1b9-0000-7000-8000-000000000006', name: 'Saham' },
   { id: '0199a1b9-0000-7000-8000-000000000007', name: 'Crypto' },
@@ -765,11 +764,6 @@ const seedAccountTypes = [
     id: '0199a1b4-0000-7000-8000-000000000005',
     name: 'Saham',
     category: AccountTypeCategory.INVESTMENT,
-  },
-  {
-    id: '0199a1b4-0000-7000-8000-000000000006',
-    name: 'Hutang & Piutang',
-    category: AccountTypeCategory.CASH,
   },
 ] as const;
 
@@ -1076,15 +1070,6 @@ const seedAccounts: AccountSeedDef[] = [
     name: 'BBCA',
     isIncludeTotal: true,
     sequenceOrder: 2n,
-  },
-
-  // 6. Personal debts and receivables (Hutang)
-  {
-    id: '0199a1b5-0000-7000-8000-000000000050',
-    accountTypeName: 'Hutang & Piutang',
-    name: 'Hutang',
-    isIncludeTotal: true,
-    sequenceOrder: 1n,
   },
 ];
 

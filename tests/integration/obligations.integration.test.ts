@@ -1,3 +1,5 @@
+import { ObligationRepository } from '../../src/modules/obligations/obligation.repository.js';
+import { ObligationCommandSchema } from '../../src/modules/obligations/obligation.schema.js';
 import { PrismaPg } from '@prisma/adapter-pg';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { integrationDatabaseUrl } from '../../src/config/integration-test.js';
@@ -459,4 +461,29 @@ describe('obligation lifecycle on isolated PostgreSQL', () => {
       expect(JSON.stringify(cashRow)).not.toContain(obligation.id);
     });
   });
+});
+
+// The web API and offline mobile share one ledger and immutable command identities.
+it('web loan commands replay once, remain private and accept mobile repayments', async () => {
+  const f = await fixture();
+  const web = new ObligationRepository(syncClient(client));
+  const item = opening(f, { installments: [] });
+  const payload = ObligationCommandSchema.parse(item.payload);
+  await web.apply(f.user, item.entity_id, payload);
+  await web.apply(f.user, item.entity_id, payload);
+  expect(await cash(f)).toBe('1100.00');
+  const records = await web.list(f.user);
+  expect(records).toHaveLength(1);
+  expect(await web.list(generateId())).toEqual([]);
+  await expect(web.events(generateId(), records[0]!.id)).rejects.toMatchObject({ statusCode: 404 });
+  const pay = await repayment(f, '40.00');
+  await sync.apply(f.user, f.device, pay);
+  expect(await cash(f)).toBe('1060.00');
+  expect((await web.list(f.user))[0]?.outstanding).toBe('60.00');
+  expect(
+    (await web.events(f.user, records[0]!.id)).filter((event) => event.operation === 'REPAY'),
+  ).toHaveLength(1);
+  expect(
+    await client.syncChange.count({ where: { userId: f.user, entityType: 'obligations' } }),
+  ).toBeGreaterThan(0);
 });

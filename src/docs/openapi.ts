@@ -1,3 +1,4 @@
+import { registerObligationOpenApi } from '../modules/obligations/obligation.openapi.js';
 import { OpenAPIRegistry, OpenApiGeneratorV31 } from '@asteasolutions/zod-to-openapi';
 import {
   createSuccessResponseSchema,
@@ -53,6 +54,7 @@ registerReferenceOpenApi(registry);
 registerApiKeyOpenApi(registry);
 registerNotificationOpenApi(registry);
 registerSyncOpenApi(registry);
+registerObligationOpenApi(registry);
 registerProfileOpenApi(registry);
 registerDeviceOpenApi(registry);
 registerAccountTypeOpenApi(registry);

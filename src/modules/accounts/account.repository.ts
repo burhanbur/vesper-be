@@ -56,7 +56,7 @@ function editableData(input: UpdateAccountInput): Prisma.AccountUpdateInput {
 }
 
 export class PrismaAccountRepository implements AccountRepository {
-  constructor(private readonly client: PrismaClient) { }
+  constructor(private readonly client: PrismaClient) {}
 
   async list(userId: string, query: ListAccountsQuery) {
     const where: Prisma.AccountWhereInput = {
@@ -229,8 +229,8 @@ export class PrismaAccountRepository implements AccountRepository {
       });
       if (!current) missing();
       assertVersion(current, BigInt(input.version));
-      if (input.is_credit_card !== undefined && input.is_credit_card !== current.isCreditCard)
-        reject('ACCOUNT_CLASSIFICATION_LOCKED', 'Jenis kartu kredit tidak dapat diubah.', current);
+      const isCard = input.is_credit_card ?? current.isCreditCard;
+      const classificationChanged = isCard !== current.isCreditCard;
       const typeId = input.account_type_id ?? current.accountTypeId;
       const parentId =
         input.parent_account_id === undefined ? current.parentAccountId : input.parent_account_id;
@@ -239,7 +239,7 @@ export class PrismaAccountRepository implements AccountRepository {
       }
       await tx.$queryRaw`SELECT id FROM accounts WHERE id = ${id}::uuid AND user_id = ${userId}::uuid FOR UPDATE`;
       if (
-        typeId !== current.accountTypeId &&
+        (typeId !== current.accountTypeId || classificationChanged) &&
         ((await tx.transaction.count({ where: { accountId: id } })) > 0 ||
           (await tx.investmentTransaction.count({
             where: { OR: [{ accountId: id }, { cashAccountId: id }] },
@@ -247,8 +247,8 @@ export class PrismaAccountRepository implements AccountRepository {
           (await tx.portfolioDailySnapshot.count({ where: { accountId: id } })) > 0)
       ) {
         reject(
-          'ACCOUNT_TYPE_HAS_TRANSACTIONS',
-          'Tipe akun dengan riwayat transaksi tidak dapat diubah.',
+          classificationChanged ? 'ACCOUNT_CLASSIFICATION_LOCKED' : 'ACCOUNT_TYPE_HAS_TRANSACTIONS',
+          'Jenis akun dengan riwayat transaksi tidak dapat diubah.',
           current,
         );
       }
@@ -258,16 +258,13 @@ export class PrismaAccountRepository implements AccountRepository {
         tx,
         userId,
         typeId,
-        current.isCreditCard,
+        isCard,
         input.credit_limit === undefined
           ? (current.creditLimit?.toFixed(2) ?? null)
           : input.credit_limit,
         parentId,
       );
-      if (
-        current.isCreditCard &&
-        (hasChildren || (await tx.groupAccount.count({ where: { accountId: id } })))
-      )
+      if (isCard && (hasChildren || (await tx.groupAccount.count({ where: { accountId: id } }))))
         reject(
           'ACCOUNT_CREDIT_CARD_INVALID',
           'Kartu kredit harus akun pribadi tanpa anak.',
@@ -287,11 +284,24 @@ export class PrismaAccountRepository implements AccountRepository {
           current,
         );
       }
+      if (
+        classificationChanged &&
+        (!current.balance.isZero() ||
+          hasChildren ||
+          parentId !== null ||
+          (await tx.groupAccount.count({ where: { accountId: id } })) > 0)
+      )
+        reject(
+          'ACCOUNT_CLASSIFICATION_LOCKED',
+          'Jenis hanya dapat dikoreksi pada akun kosong, pribadi, dan tanpa kantong.',
+          current,
+        );
       await this.validateParent(tx, userId, id, typeId, parentId);
       const record = await tx.account.update({
         where: { id, userId, deletedAt: null, version: current.version },
         data: {
           ...editableData(input),
+          isCreditCard: isCard,
           accountType: { connect: { id: typeId } },
           parent: parentId === null ? { disconnect: true } : { connect: { id: parentId } },
           ...(hasChildren ? { isIncludeTotal: false } : {}),

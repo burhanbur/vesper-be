@@ -1,5 +1,13 @@
 # Debt, receivables, and installments (WM-06)
 
+## Simplified clients and web access
+
+Clients separate personal loans from credit cards. New loans ask whether the user owes money or someone owes them, the counterparty, principal and cash account. Existing loans do not move cash again and can link a signed legacy account. Raw installment schedule entry is removed from the main forms; stored schedules, payment history, optional categorized interest/fees and correction commands remain supported. The seed no longer creates the confusing combined Hutang & Piutang type/account; existing user data is preserved.
+
+Authenticated web clients can use GET /api/v1/obligations, GET /api/v1/obligations/:id/events and POST /api/v1/obligations/commands. The write body is { id, command }, using the exact existing ObligationCommandSchema and immutable IDs described below. These owner-only endpoints require no device registration or extra RBAC grant. They reuse the same repository, sync writer lock, transaction, exact-money ledger, version rules and publication as mobile. Retry identical IDs/payloads after a timeout. API documentation is generated from the shared schemas.
+
+Credit card creation asks for name and optional limit, selecting CASH storage metadata automatically. A limit of nine million Rupiah is entered as 9000000; a new card begins at zero. Limits are advisory metadata, never cash or additional net worth. Purchases are card expenses; repayments are cash-to-card transfers. The old client rollout switches are removed. Deploy the backend before updated clients; no new migration is introduced by this simplification, and existing loan/card migrations remain prerequisites. Do not run the seed or rewrite balances as part of this release.
+
 ## Scope and precision
 
 The register is private to the authenticated owner. `PAYABLE` means money owed
@@ -44,11 +52,10 @@ not create transactions or notifications automatically.
 
 ## Legacy account mapping and net worth
 
-An existing leaf IDR CASH account can explicitly represent a legacy loan/card
+An existing leaf IDR CASH account can explicitly represent a legacy loan
 balance: negative balance for PAYABLE, positive for RECEIVABLE, exactly equal to
 registration principal. No sign is inferred from the account name, and no old
-ledger history is rewritten. Positive card balances remain assets under the
-signed-balance convention. Only an owner can map an account; a partial unique
+ledger history is rewritten. Explicit credit-card accounts cannot be mapped; their positive balances remain non-liquid assets. Only an owner can map an account; a partial unique
 index prevents two active records from mapping the same account.
 
 Mapping replaces the account balance with the obligation component in net worth.
@@ -124,3 +131,7 @@ transfer form shortcut. After an Android integration test, rebuild/run
 `lib/main.dart` to restore the normal application APK. VS Code launch targets
 explicitly point to that entry point so test runner APKs do not leave a blank
 screen when the app is launched again.
+
+## Correcting unused accounts
+
+PATCH accounts permits correcting is_credit_card only for a zero-balance owner-private root with no children, grants, transaction history (including tombstones), investment history or snapshots. A card-to-cash correction clears credit_limit explicitly. History-bearing classifications remain protected; name and limit edits remain available. DELETE is an owner-only soft delete with existing balance, active transaction, child and investment checks. Mobile exposes this action with confirmation and validates locally before queueing sync. Credit card presentation always overrides the underlying CASH type label.

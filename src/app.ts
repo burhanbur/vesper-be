@@ -1,3 +1,5 @@
+import { ObligationRepository } from './modules/obligations/obligation.repository.js';
+import { createObligationRouter } from './modules/obligations/obligation.route.js';
 import cors from 'cors';
 import {
   PrismaNetWorthRepository,
@@ -21,7 +23,10 @@ import { SyncRepository } from './modules/sync/sync.repository.js';
 import { createSyncRouter } from './modules/sync/sync.route.js';
 import { PrismaGroupRepository, type GroupRepository } from './modules/groups/group.repository.js';
 import { createGroupRouter } from './modules/groups/group.route.js';
-import { PrismaPocketRepository, type PocketRepository } from './modules/groups/pocket.repository.js';
+import {
+  PrismaPocketRepository,
+  type PocketRepository,
+} from './modules/groups/pocket.repository.js';
 import { createPocketRouter } from './modules/groups/pocket.route.js';
 import express, { type Express } from 'express';
 import helmet from 'helmet';
@@ -134,6 +139,7 @@ export type AppDependencies = {
   pocketRepository?: PocketRepository;
   collaborationRepository?: CollaborationRepository;
   syncRepository?: SyncRepository;
+  obligationRepository?: ObligationRepository;
   notificationRepository?: NotificationRepository;
   apiKeyRepository?: ApiKeyRepository;
 };
@@ -147,6 +153,7 @@ function defaultDependencies(): AppDependencies {
     apiKeyRepository: new PrismaApiKeyRepository(prisma),
     notificationRepository: new PrismaNotificationRepository(prisma),
     syncRepository: new SyncRepository(prisma),
+    obligationRepository: new ObligationRepository(synced),
     userRepository: new PrismaUserRepository(prisma),
     authRepository: new PrismaAuthUserRepository(prisma),
     authSessionStore: new RedisAuthSessionStore(redis),
@@ -309,6 +316,13 @@ export function createApp(dependencies: AppDependencies = defaultDependencies())
   }
   if (dependencies.pocketRepository) {
     app.use('/api/v1/groups', createPocketRouter(dependencies.pocketRepository, authService));
+  }
+
+  if (dependencies.obligationRepository) {
+    app.use(
+      '/api/v1/obligations',
+      createObligationRouter(dependencies.obligationRepository, authService),
+    );
   }
 
   if (dependencies.syncRepository) {
