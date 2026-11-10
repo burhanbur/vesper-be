@@ -5,7 +5,7 @@ import type { SyncRepository } from './sync.repository.js';
 import type { RecoveryRequest, RecoveryReview } from './investment-recovery.schema.js';
 
 export class SyncService {
-  constructor(private readonly repository: SyncRepository) {}
+  constructor(private readonly repository: SyncRepository) { }
   requestRecovery(userId: string, input: RecoveryRequest) {
     return this.repository.requestRecovery(userId, input);
   }
@@ -24,7 +24,11 @@ export class SyncService {
     for (const [index, raw] of body.items.entries()) {
       const parsed = PushItemSchema.safeParse(raw);
       if (!parsed.success) {
-        results.push({ index, status: 'rejected', message: 'Data perubahan tidak valid.' });
+        const entityId =
+          raw && typeof raw === 'object' && 'entity_id' in raw && typeof raw.entity_id === 'string'
+            ? raw.entity_id
+            : undefined;
+        results.push({ index, entity_id: entityId, status: 'rejected', message: 'Data perubahan tidak valid.' });
         continue;
       }
       const item = parsed.data;

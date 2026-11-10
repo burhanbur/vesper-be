@@ -34,8 +34,15 @@ function harness() {
     transfer: {
       findUnique: vi.fn(),
       create: vi.fn(async ({ data }: { data: Prisma.TransferUncheckedCreateInput }) => data),
+      update: vi.fn(async ({ data }: { data: Prisma.TransferUncheckedUpdateInput }) => ({ ...persisted(), ...data })),
     },
-    transaction: { createMany: vi.fn().mockResolvedValue({ count: 2 }) },
+    transaction: {
+      createMany: vi.fn().mockResolvedValue({ count: 2 }),
+      update: vi.fn(async ({ data }: { data: Prisma.TransactionUncheckedUpdateInput }) => data),
+    },
+    accountType: {
+      findFirst: vi.fn().mockResolvedValue({ id: uuid(99), category: 'CASH' }),
+    },
   };
   // Database-free boundary; the real repository still owns a single transaction callback.
   const transaction = vi.fn(async (fn: (tx: Prisma.TransactionClient) => Promise<unknown>) =>
@@ -52,10 +59,15 @@ function harness() {
   return { tx, transaction, repository };
 }
 function persisted() {
+  const now = new Date();
   return {
     id,
     createdBy: actor,
-    deletedAt: null,
+    updatedBy: actor,
+    deletedBy: null,
+    createdAt: now,
+    updatedAt: now,
+    deletedAt: null as Date | null,
     version: 1n,
     fromAccountId: payload.from_account_id,
     toAccountId: payload.to_account_id,
@@ -77,7 +89,7 @@ function persisted() {
       ...row,
       type: 'TRANSFER',
       categoryId: null,
-      deletedAt: null,
+      deletedAt: null as Date | null,
       transferId: id,
       transactedAt: new Date(payload.transacted_at),
       description: null,
@@ -87,12 +99,12 @@ function persisted() {
 }
 beforeEach(() => vi.resetAllMocks());
 describe('offline atomic transfer commands', () => {
-  it('accepts create-only commands and rejects invalid identities, versions and manual ledger writes', () => {
+  it('accepts valid commands and rejects invalid identities, versions and manual ledger writes', () => {
     expect(PushItemSchema.safeParse(command).success).toBe(true);
+    expect(PushItemSchema.safeParse({ ...command, operation: 'UPDATE', client_version: '1' }).success).toBe(true);
+    expect(PushItemSchema.safeParse({ ...command, operation: 'DELETE', client_version: '1', payload: null }).success).toBe(true);
     for (const change of [
-      { operation: 'UPDATE' },
-      { operation: 'DELETE', payload: null },
-      { client_version: '1' },
+      { client_version: '1' }, // CREATE with version != 0
       { payload: { ...payload, to_account_id: payload.from_account_id } },
       { payload: { ...payload, to_transaction_id: payload.from_transaction_id } },
       { payload: { ...payload, from_transaction_id: id } },
@@ -184,6 +196,62 @@ describe('offline atomic transfer commands', () => {
       if (stage === 'insert') expect(ledger.recompute).not.toHaveBeenCalled();
       vi.resetAllMocks();
     }
+  });
+  it('updates an existing transfer and both transaction legs, then recomputes balances', async () => {
+    const { tx, repository } = harness();
+    tx.transfer.findUnique.mockResolvedValue(persisted());
+    const newPayload = { ...payload, amount: '25.00', description: 'Updated' };
+    const res = await repository.updateOffline(actor, id, '1', newPayload);
+    expect(tx.transfer.update).toHaveBeenCalledOnce();
+    expect(tx.transaction.update).toHaveBeenCalledTimes(2);
+    expect(ledger.recompute).toHaveBeenCalledOnce();
+    expect(res).toMatchObject({
+      id,
+      fromTransactionId: payload.from_transaction_id,
+      toTransactionId: payload.to_transaction_id,
+    });
+  });
+  it('replays identical update without extra writes', async () => {
+    const { tx, repository } = harness();
+    tx.transfer.findUnique.mockResolvedValue(persisted());
+    const res = await repository.updateOffline(actor, id, '1', payload);
+    expect(tx.transfer.update).not.toHaveBeenCalled();
+    expect(tx.transaction.update).not.toHaveBeenCalled();
+    expect(ledger.recompute).not.toHaveBeenCalled();
+    expect(res.id).toBe(id);
+  });
+  it('rejects update with stale client_version', async () => {
+    const { tx, repository } = harness();
+    const record = persisted();
+    record.version = 2n;
+    tx.transfer.findUnique.mockResolvedValue(record);
+    await expect(
+      repository.updateOffline(actor, id, '1', { ...payload, amount: '50.00' }),
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      code: 'TRANSFER_VERSION_CONFLICT',
+    });
+  });
+  it('soft deletes a transfer and its legs, then recomputes balances', async () => {
+    const { tx, repository } = harness();
+    tx.transfer.findUnique.mockResolvedValue(persisted());
+    const res = await repository.deleteOffline(actor, id, '1');
+    expect(tx.transfer.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ deletedBy: actor }) }),
+    );
+    expect(tx.transaction.update).toHaveBeenCalledTimes(2);
+    expect(ledger.recompute).toHaveBeenCalledOnce();
+    expect(res.id).toBe(id);
+  });
+  it('replays delete idempotently if already deleted', async () => {
+    const { tx, repository } = harness();
+    const record = persisted();
+    record.deletedAt = new Date();
+    tx.transfer.findUnique.mockResolvedValue(record);
+    const res = await repository.deleteOffline(actor, id, '1');
+    expect(tx.transfer.update).not.toHaveBeenCalled();
+    expect(tx.transaction.update).not.toHaveBeenCalled();
+    expect(res.id).toBe(id);
   });
   it('generates OpenAPI for the additive command contract', () => {
     const registry = new OpenAPIRegistry();

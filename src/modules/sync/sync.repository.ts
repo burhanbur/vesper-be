@@ -398,7 +398,25 @@ export class SyncRepository extends InvestmentRecoveryRepository {
         return { status: 'applied' as const, server_data: toInvestmentDto(trade) };
       }
       if (item.entity_type === 'transfers') {
-        const transfer = await new PrismaTransferRepository(transactionClient(tx)).createOffline(
+        const transferRepo = new PrismaTransferRepository(transactionClient(tx));
+        if (item.operation === 'UPDATE') {
+          const transfer = await transferRepo.updateOffline(
+            userId,
+            item.entity_id,
+            item.client_version,
+            item.payload,
+          );
+          return { status: 'applied' as const, server_data: toTransferDto(transfer) };
+        }
+        if (item.operation === 'DELETE') {
+          const transfer = await transferRepo.deleteOffline(
+            userId,
+            item.entity_id,
+            item.client_version,
+          );
+          return { status: 'applied' as const, server_data: toTransferDto(transfer) };
+        }
+        const transfer = await transferRepo.createOffline(
           userId,
           item.entity_id,
           item.payload,

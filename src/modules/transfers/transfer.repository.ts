@@ -4,7 +4,7 @@ import { generateId } from '../../common/utils/id.js';
 import { Prisma, type PrismaClient } from '../../generated/prisma/client.js';
 import { lockLedgerAccounts, recomputeLedgerBalances } from '../transactions/ledger.js';
 import type { CreateTransferInput } from './transfer.schema.js';
-import type { TransferRecord } from './transfer.types.js';
+import { toTransferDto, type TransferRecord } from './transfer.types.js';
 
 type OfflineTransferInput = CreateTransferInput & {
   from_transaction_id: string;
@@ -13,6 +13,14 @@ type OfflineTransferInput = CreateTransferInput & {
 
 export interface TransferRepository {
   create(userId: string, id: string, input: CreateTransferInput): Promise<TransferRecord>;
+  createOffline(userId: string, id: string, input: OfflineTransferInput): Promise<TransferRecord>;
+  updateOffline(
+    userId: string,
+    id: string,
+    clientVersion: string,
+    input: OfflineTransferInput,
+  ): Promise<TransferRecord>;
+  deleteOffline(userId: string, id: string, clientVersion?: string): Promise<TransferRecord>;
 }
 export class PrismaTransferRepository implements TransferRepository {
   constructor(private readonly client: PrismaClient) { }
@@ -23,6 +31,278 @@ export class PrismaTransferRepository implements TransferRepository {
 
   createOffline(userId: string, id: string, input: OfflineTransferInput): Promise<TransferRecord> {
     return this.persist(userId, id, input, input);
+  }
+
+  updateOffline(
+    userId: string,
+    id: string,
+    clientVersion: string,
+    input: OfflineTransferInput,
+  ): Promise<TransferRecord> {
+    return this.client.$transaction(
+      async (tx) => {
+        if (input.from_account_id === input.to_account_id) {
+          throw new AppError({
+            statusCode: 422,
+            code: 'TRANSFER_ACCOUNTS_DISTINCT',
+            message: 'Akun asal dan tujuan harus berbeda.',
+          });
+        }
+        const existing = await tx.transfer.findUnique({
+          where: { id },
+          include: { transactions: true },
+        });
+        if (!existing) {
+          throw new AppError({
+            statusCode: 404,
+            code: 'TRANSFER_NOT_FOUND',
+            message: 'Transfer tidak ditemukan.',
+          });
+        }
+        if (existing.createdBy !== userId) {
+          throw new AppError({
+            statusCode: 403,
+            code: 'FORBIDDEN',
+            message: 'Anda tidak memiliki akses ke transfer ini.',
+          });
+        }
+        if (existing.deletedAt !== null) {
+          throw new AppError({
+            statusCode: 409,
+            code: 'TRANSFER_ALREADY_DELETED',
+            message: 'Transfer sudah dihapus.',
+          });
+        }
+
+        const amount = new Prisma.Decimal(input.amount);
+        if (
+          !amount.isFinite() ||
+          !amount.isPositive() ||
+          amount.decimalPlaces() > 2 ||
+          amount.greaterThan('999999999999999999.99')
+        ) {
+          throw new AppError({
+            statusCode: 422,
+            code: 'TRANSFER_AMOUNT_INVALID',
+            message: 'Nominal transfer tidak valid.',
+          });
+        }
+
+        const fromLeg =
+          existing.transactions.find((row) => row.id === input.from_transaction_id) ??
+          existing.transactions.find((row) => row.amount.isNegative());
+        const toLeg =
+          existing.transactions.find((row) => row.id === input.to_transaction_id) ??
+          existing.transactions.find((row) => row.amount.isPositive());
+
+        if (!fromLeg || !toLeg || fromLeg.id === toLeg.id) {
+          throw new AppError({
+            statusCode: 422,
+            code: 'TRANSFER_LEGS_INVALID',
+            message: 'Baris transaksi transfer tidak lengkap.',
+          });
+        }
+
+        // Idempotency replay check
+        const isReplay =
+          existing.fromAccountId === input.from_account_id &&
+          existing.toAccountId === input.to_account_id &&
+          existing.amount.equals(amount) &&
+          existing.transactedAt.getTime() === new Date(input.transacted_at).getTime() &&
+          existing.description === input.description &&
+          fromLeg.accountId === input.from_account_id &&
+          toLeg.accountId === input.to_account_id &&
+          fromLeg.amount.equals(amount.negated()) &&
+          toLeg.amount.equals(amount);
+
+        if (isReplay) {
+          return { ...existing, fromTransactionId: fromLeg.id, toTransactionId: toLeg.id };
+        }
+
+        // Version check
+        if (BigInt(clientVersion) < existing.version) {
+          throw new AppError({
+            statusCode: 409,
+            code: 'TRANSFER_VERSION_CONFLICT',
+            message: 'Versi transfer tidak sesuai.',
+            errors: {
+              server_data: toTransferDto({
+                ...existing,
+                fromTransactionId: fromLeg.id,
+                toTransactionId: toLeg.id,
+              }),
+            },
+          });
+        }
+
+        const affectedAccountIds = Array.from(
+          new Set([
+            existing.fromAccountId,
+            existing.toAccountId,
+            input.from_account_id,
+            input.to_account_id,
+          ]),
+        );
+        const accounts = await lockLedgerAccounts(tx, userId, affectedAccountIds);
+        const from = accounts.find((a) => a.id === input.from_account_id);
+        const to = accounts.find((a) => a.id === input.to_account_id);
+        if (!from || !to || from.currency !== 'IDR' || to.currency !== 'IDR') {
+          throw new AppError({
+            statusCode: 422,
+            code: 'TRANSFER_CURRENCY_MISMATCH',
+            message: 'Akun asal dan tujuan harus memiliki mata uang yang sama.',
+          });
+        }
+        if (from.isCreditCard || to.isCreditCard) {
+          const sourceType = await tx.accountType.findFirst({
+            where: { id: from.accountTypeId, deletedAt: null },
+          });
+          assertCardTransfer(userId, from, to, sourceType?.category);
+        }
+
+        const now = new Date();
+        const transactedAt = new Date(input.transacted_at);
+
+        const updatedTransfer = await tx.transfer.update({
+          where: { id },
+          data: {
+            fromAccountId: input.from_account_id,
+            toAccountId: input.to_account_id,
+            amount,
+            transactedAt,
+            description: input.description,
+            version: { increment: 1n },
+            updatedBy: userId,
+            updatedAt: now,
+          },
+        });
+
+        await tx.transaction.update({
+          where: { id: fromLeg.id },
+          data: {
+            accountId: input.from_account_id,
+            amount: amount.negated(),
+            transactedAt,
+            description: input.description,
+            version: { increment: 1n },
+            updatedBy: userId,
+            updatedAt: now,
+          },
+        });
+
+        await tx.transaction.update({
+          where: { id: toLeg.id },
+          data: {
+            accountId: input.to_account_id,
+            amount,
+            transactedAt,
+            description: input.description,
+            version: { increment: 1n },
+            updatedBy: userId,
+            updatedAt: now,
+          },
+        });
+
+        await recomputeLedgerBalances(tx, accounts);
+
+        return {
+          ...updatedTransfer,
+          fromTransactionId: fromLeg.id,
+          toTransactionId: toLeg.id,
+        };
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
+  }
+
+  deleteOffline(userId: string, id: string, clientVersion?: string): Promise<TransferRecord> {
+    return this.client.$transaction(
+      async (tx) => {
+        const existing = await tx.transfer.findUnique({
+          where: { id },
+          include: { transactions: true },
+        });
+        if (!existing) {
+          throw new AppError({
+            statusCode: 404,
+            code: 'TRANSFER_NOT_FOUND',
+            message: 'Transfer tidak ditemukan.',
+          });
+        }
+        if (existing.createdBy !== userId) {
+          throw new AppError({
+            statusCode: 403,
+            code: 'FORBIDDEN',
+            message: 'Anda tidak memiliki akses ke transfer ini.',
+          });
+        }
+        const fromLeg =
+          existing.transactions.find((row) => row.amount.isNegative()) ?? existing.transactions[0];
+        const toLeg =
+          existing.transactions.find((row) => row.amount.isPositive()) ?? existing.transactions[1];
+
+        // Idempotent delete
+        if (existing.deletedAt !== null) {
+          return {
+            ...existing,
+            fromTransactionId: fromLeg?.id ?? '',
+            toTransactionId: toLeg?.id ?? '',
+          };
+        }
+
+        if (clientVersion && BigInt(clientVersion) < existing.version) {
+          throw new AppError({
+            statusCode: 409,
+            code: 'TRANSFER_VERSION_CONFLICT',
+            message: 'Versi transfer tidak sesuai.',
+            errors: {
+              server_data: toTransferDto({
+                ...existing,
+                fromTransactionId: fromLeg?.id ?? '',
+                toTransactionId: toLeg?.id ?? '',
+              }),
+            },
+          });
+        }
+
+        const accounts = await lockLedgerAccounts(tx, userId, [
+          existing.fromAccountId,
+          existing.toAccountId,
+        ]);
+
+        const now = new Date();
+        const deletedTransfer = await tx.transfer.update({
+          where: { id },
+          data: {
+            deletedAt: now,
+            deletedBy: userId,
+            version: { increment: 1n },
+            updatedAt: now,
+          },
+        });
+
+        for (const leg of existing.transactions.filter((row) => row.deletedAt === null)) {
+          await tx.transaction.update({
+            where: { id: leg.id },
+            data: {
+              deletedAt: now,
+              deletedBy: userId,
+              version: { increment: 1n },
+              updatedAt: now,
+            },
+          });
+        }
+
+        await recomputeLedgerBalances(tx, accounts);
+
+        return {
+          ...deletedTransfer,
+          fromTransactionId: fromLeg?.id ?? '',
+          toTransactionId: toLeg?.id ?? '',
+        };
+      },
+      { isolationLevel: 'ReadCommitted' },
+    );
   }
 
   private persist(

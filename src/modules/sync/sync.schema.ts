@@ -169,6 +169,24 @@ export const PushItemSchema = z.union([
         value.entity_id !== value.payload.from_transaction_id &&
         value.entity_id !== value.payload.to_transaction_id,
     ),
+  z
+    .strictObject({
+      ...base,
+      entity_type: z.literal('transfers'),
+      operation: z.literal('UPDATE'),
+      payload: OfflineTransferPayloadSchema,
+    })
+    .refine(
+      (value) =>
+        value.entity_id !== value.payload.from_transaction_id &&
+        value.entity_id !== value.payload.to_transaction_id,
+    ),
+  z.strictObject({
+    ...base,
+    entity_type: z.literal('transfers'),
+    operation: z.literal('DELETE'),
+    payload: z.record(z.string(), z.unknown()).nullable().optional(),
+  }),
   z.strictObject({
     ...base,
     entity_type: z.literal('account_types'),
