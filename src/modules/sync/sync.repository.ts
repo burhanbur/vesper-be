@@ -197,6 +197,15 @@ export class SyncRepository extends InvestmentRecoveryRepository {
         (await tx.syncChange.aggregate({ _max: { version: true } }))._max.version ?? 0n;
       const since = BigInt(input.since_version);
       if (since > watermark) fail(422, 'Cursor sinkronisasi melebihi versi server.');
+      if (since === watermark) {
+        await tx.device.update({ where: { id: input.device_id }, data: { lastSeenAt: new Date() } });
+        return {
+          changes: [],
+          next_version: watermark.toString(),
+          watermark: watermark.toString(),
+          has_more: false,
+        };
+      }
       // The feed carries current record snapshots, not historical ledger deltas.
       // Opt-in clients need only the last change per identity in this window.
       // Bound values and the existing (user_id,version) index keep the scan scoped.
