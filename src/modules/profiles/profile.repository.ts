@@ -62,11 +62,18 @@ export class PrismaProfileRepository implements ProfileRepository {
         });
       }
       const data = profileData(input);
-      return transaction.userProfile.upsert({
+      const profile = await transaction.userProfile.upsert({
         where: { userId },
         create: { userId, ...data },
         update: data,
       });
+      if (input.full_name) {
+        await transaction.user.update({
+          where: { id: userId },
+          data: { name: input.full_name },
+        });
+      }
+      return profile;
     });
   }
 }

@@ -6,9 +6,19 @@ import { lockLedgerAccounts, recomputeLedgerBalances } from '../transactions/led
 import type { CreateTransferInput } from './transfer.schema.js';
 import { toTransferDto, type TransferRecord } from './transfer.types.js';
 
-type OfflineTransferInput = CreateTransferInput & {
-  from_transaction_id: string;
-  to_transaction_id: string;
+export type OfflineTransferInput = CreateTransferInput & {
+  from_transaction_id?: string;
+  to_transaction_id?: string;
+};
+
+export type UpdateTransferRepoInput = {
+  from_account_id?: string | undefined;
+  to_account_id?: string | undefined;
+  from_transaction_id?: string | undefined;
+  to_transaction_id?: string | undefined;
+  amount?: string | undefined;
+  transacted_at?: string | undefined;
+  description?: string | null | undefined;
 };
 
 export interface TransferRepository {
@@ -18,7 +28,7 @@ export interface TransferRepository {
     userId: string,
     id: string,
     clientVersion: string,
-    input: OfflineTransferInput,
+    input: UpdateTransferRepoInput,
   ): Promise<TransferRecord>;
   deleteOffline(userId: string, id: string, clientVersion?: string): Promise<TransferRecord>;
 }
@@ -37,17 +47,10 @@ export class PrismaTransferRepository implements TransferRepository {
     userId: string,
     id: string,
     clientVersion: string,
-    input: OfflineTransferInput,
+    input: UpdateTransferRepoInput,
   ): Promise<TransferRecord> {
     return this.client.$transaction(
       async (tx) => {
-        if (input.from_account_id === input.to_account_id) {
-          throw new AppError({
-            statusCode: 422,
-            code: 'TRANSFER_ACCOUNTS_DISTINCT',
-            message: 'Akun asal dan tujuan harus berbeda.',
-          });
-        }
         const existing = await tx.transfer.findUnique({
           where: { id },
           include: { transactions: true },
@@ -74,7 +77,17 @@ export class PrismaTransferRepository implements TransferRepository {
           });
         }
 
-        const amount = new Prisma.Decimal(input.amount);
+        const fromAccountId = input.from_account_id ?? existing.fromAccountId;
+        const toAccountId = input.to_account_id ?? existing.toAccountId;
+        if (fromAccountId === toAccountId) {
+          throw new AppError({
+            statusCode: 422,
+            code: 'TRANSFER_ACCOUNTS_DISTINCT',
+            message: 'Akun asal dan tujuan harus berbeda.',
+          });
+        }
+
+        const amount = input.amount !== undefined ? new Prisma.Decimal(input.amount) : existing.amount;
         if (
           !amount.isFinite() ||
           !amount.isPositive() ||
@@ -103,15 +116,18 @@ export class PrismaTransferRepository implements TransferRepository {
           });
         }
 
+        const transactedAt = input.transacted_at ? new Date(input.transacted_at) : existing.transactedAt;
+        const description = input.description !== undefined ? input.description : existing.description;
+
         // Idempotency replay check
         const isReplay =
-          existing.fromAccountId === input.from_account_id &&
-          existing.toAccountId === input.to_account_id &&
+          existing.fromAccountId === fromAccountId &&
+          existing.toAccountId === toAccountId &&
           existing.amount.equals(amount) &&
-          existing.transactedAt.getTime() === new Date(input.transacted_at).getTime() &&
-          existing.description === input.description &&
-          fromLeg.accountId === input.from_account_id &&
-          toLeg.accountId === input.to_account_id &&
+          existing.transactedAt.getTime() === transactedAt.getTime() &&
+          existing.description === description &&
+          fromLeg.accountId === fromAccountId &&
+          toLeg.accountId === toAccountId &&
           fromLeg.amount.equals(amount.negated()) &&
           toLeg.amount.equals(amount);
 
@@ -139,13 +155,13 @@ export class PrismaTransferRepository implements TransferRepository {
           new Set([
             existing.fromAccountId,
             existing.toAccountId,
-            input.from_account_id,
-            input.to_account_id,
+            fromAccountId,
+            toAccountId,
           ]),
         );
         const accounts = await lockLedgerAccounts(tx, userId, affectedAccountIds);
-        const from = accounts.find((a) => a.id === input.from_account_id);
-        const to = accounts.find((a) => a.id === input.to_account_id);
+        const from = accounts.find((a) => a.id === fromAccountId);
+        const to = accounts.find((a) => a.id === toAccountId);
         if (!from || !to || from.currency !== 'IDR' || to.currency !== 'IDR') {
           throw new AppError({
             statusCode: 422,
@@ -161,16 +177,15 @@ export class PrismaTransferRepository implements TransferRepository {
         }
 
         const now = new Date();
-        const transactedAt = new Date(input.transacted_at);
 
         const updatedTransfer = await tx.transfer.update({
           where: { id },
           data: {
-            fromAccountId: input.from_account_id,
-            toAccountId: input.to_account_id,
+            fromAccountId,
+            toAccountId,
             amount,
             transactedAt,
-            description: input.description,
+            description,
             version: { increment: 1n },
             updatedBy: userId,
             updatedAt: now,
@@ -180,10 +195,10 @@ export class PrismaTransferRepository implements TransferRepository {
         await tx.transaction.update({
           where: { id: fromLeg.id },
           data: {
-            accountId: input.from_account_id,
+            accountId: fromAccountId,
             amount: amount.negated(),
             transactedAt,
-            description: input.description,
+            description,
             version: { increment: 1n },
             updatedBy: userId,
             updatedAt: now,
@@ -193,10 +208,10 @@ export class PrismaTransferRepository implements TransferRepository {
         await tx.transaction.update({
           where: { id: toLeg.id },
           data: {
-            accountId: input.to_account_id,
+            accountId: toAccountId,
             amount,
             transactedAt,
-            description: input.description,
+            description,
             version: { increment: 1n },
             updatedBy: userId,
             updatedAt: now,

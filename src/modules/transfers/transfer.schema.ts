@@ -35,3 +35,36 @@ export const TransferDtoSchema = z.strictObject({
 });
 export type CreateTransferInput = z.infer<typeof CreateTransferSchema>;
 export type TransferDto = z.infer<typeof TransferDtoSchema>;
+
+export const TransferIdParamsSchema = z.strictObject({ id: z.uuid() });
+
+export const DeleteTransferQuerySchema = z.strictObject({
+  version: TransactionVersionSchema.optional(),
+});
+
+export const UpdateTransferSchema = z
+  .strictObject({
+    from_account_id: z.uuid().optional(),
+    to_account_id: z.uuid().optional(),
+    amount: TransactionAmountSchema.optional(),
+    transacted_at: z.iso.datetime({ offset: true }).optional(),
+    description: z.string().trim().min(1).max(5000).nullable().optional(),
+    version: TransactionVersionSchema,
+  })
+  .refine(
+    (value) => Object.keys(value).some((key) => key !== 'version'),
+    'Minimal satu field harus diubah.',
+  )
+  .refine(
+    (value) =>
+      value.from_account_id === undefined ||
+      value.to_account_id === undefined ||
+      value.from_account_id !== value.to_account_id,
+    {
+      message: 'Akun asal dan tujuan harus berbeda.',
+      path: ['to_account_id'],
+    },
+  );
+
+export type UpdateTransferInput = z.infer<typeof UpdateTransferSchema>;
+
