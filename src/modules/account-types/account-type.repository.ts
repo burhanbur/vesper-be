@@ -1,4 +1,5 @@
 import type { Prisma, PrismaClient } from '../../generated/prisma/client.js';
+import { activeGroup, activeMember } from '../../common/authorization/account-access.js';
 import type {
   CreateAccountTypeInput,
   ListAccountTypesQuery,
@@ -33,8 +34,20 @@ export class PrismaAccountTypeRepository implements AccountTypeRepository {
 
   async list(userId: string, query: ListAccountTypesQuery) {
     const where: Prisma.AccountTypeWhereInput = {
-      userId,
       deletedAt: null,
+      OR: [
+        { userId },
+        {
+          accounts: {
+            some: {
+              deletedAt: null,
+              groupAccounts: {
+                some: { group: { ...activeGroup, members: { some: activeMember(userId) } } },
+              },
+            },
+          },
+        },
+      ],
       ...(query.name === undefined ? {} : { name: { contains: query.name, mode: 'insensitive' } }),
       ...(query.category === undefined ? {} : { category: query.category }),
     };
