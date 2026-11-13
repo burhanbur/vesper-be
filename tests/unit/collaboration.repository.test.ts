@@ -97,7 +97,7 @@ describe('collaboration privacy and membership', () => {
     const queries = tx.$queryRaw.mock.calls.map((call) =>
       String((call as unknown as [{ sql: string }])[0].sql),
     );
-    expect(queries[0]).toContain("at.category = 'CASH'");
+    expect(queries[0]).toContain("at.category IN ('CASH', 'INVESTMENT')");
     expect(queries[1]).toContain('gc.group_id = ug.group_id');
     expect(queries[2]).toContain('t.transfer_id IS NULL');
     expect(queries[2]).toContain('investment_transactions');

@@ -41,7 +41,7 @@ export class CollaborationRepository {
           AND NOT EXISTS (SELECT 1 FROM investment_transactions it WHERE it.linked_transaction_id = t.id)`;
         const balances = await tx.$queryRaw<{ currency: string; balance: string }[]>(Prisma.sql`
         SELECT a.currency, SUM(a.balance)::text AS balance FROM accounts a
-        JOIN account_types at ON at.id = a.account_type_id AND at.user_id = a.user_id AND at.deleted_at IS NULL AND at.category = 'CASH'
+        JOIN account_types at ON at.id = a.account_type_id AND at.user_id = a.user_id AND at.deleted_at IS NULL AND at.category IN ('CASH', 'INVESTMENT')
         JOIN group_accounts ga ON ga.account_id = a.id AND ga.group_id = ${groupId}::uuid
         JOIN user_groups ug ON ug.group_id = ga.group_id AND ug.user_id = a.user_id
         JOIN users u ON u.id = ug.user_id AND u.status = 'ACTIVE' AND u.deleted_at IS NULL
